@@ -1,0 +1,20 @@
+plugins {
+    id 'bluemap3d-addon'
+}
+
+ext {
+    mod_id = 'bluemap3d_devharness'
+    mod_name = 'BlueMap3D Dev Harness'
+    mod_description = 'Local test harness. Spawns fake moving objects so the 3D pipeline can be seen in a browser. Not for production.'
+}
+
+// Deliberately no publishMods block, and not in the bundle jar. This module exists to be
+// run, not shipped.
+//
+// Its dev server needs no third-party mods at all - the four objects are synthetic. That
+// is the point: it isolates core's pipeline from any question about a target mod's API.
+// For a real end-to-end test with actual ComputerCraft turtles running Lua, use
+// :addon-turtles:runServer instead.
+//
+//   ./gradlew :dev-harness:prepareDevServer -Paccept_licences
+//   ./gradlew :dev-harness:runServer

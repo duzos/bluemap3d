@@ -1,0 +1,48 @@
+// A BlueMap3D NeoForge module. Applied by core and by every addon.
+//
+// BlueMap3D is NeoForge-only (BlueMap, Create, Sable and CC:Tweaked are all NeoForge
+// on the target pack), so unlike the multiloader template this collapses to a single
+// loader and there is no common/ source-sharing configuration to do.
+
+plugins {
+    id 'bluemap3d-common'
+    id 'bluemap3d-devserver'
+    id 'net.neoforged.moddev'
+}
+
+neoForge {
+    version = neoforge_version
+
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+
+    validateAccessTransformers = true
+
+    runs {
+        client {
+            client()
+            gameDirectory = file('run/client')
+        }
+        server {
+            server()
+            gameDirectory = file('run/server')
+        }
+    }
+}
+
+afterEvaluate {
+    neoForge {
+        mods {
+            register(project.ext.mod_id) {
+                sourceSet sourceSets.main
+            }
+        }
+    }
+}
+
+dependencies {
+    // The BlueMap API is provided at runtime by the BlueMap mod. Never bundle it.
+    compileOnly "de.bluecolored:bluemap-api:${bluemap_api_version}"
+}

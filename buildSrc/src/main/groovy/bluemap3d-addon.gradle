@@ -1,0 +1,17 @@
+// A BlueMap3D addon: a thin provider that adapts one target mod to core's
+// SceneObjectProvider seam.
+//
+// Addons depend on core at compile time and declare it `required` in their toml.
+// They must contain no rendering code and no JavaScript - if an addon ever needs its
+// own JS, the abstraction in core has leaked and core is what should change.
+
+plugins {
+    id 'bluemap3d-module'
+}
+
+dependencies {
+    // Not `compileOnly`: the dev runs need core on the classpath. Gradle does not
+    // bundle `implementation` dependencies into the jar, and core is declared
+    // `required` in the addon's toml, so the published addon stays thin.
+    implementation project(':core')
+}

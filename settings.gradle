@@ -1,0 +1,31 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases'
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+// This should match the folder name of the project, or else IDEA may complain
+// (see https://youtrack.jetbrains.com/issue/IDEA-317606)
+rootProject.name = 'BlueMap3D'
+
+// The library. Must build and run with zero addons present.
+include("core")
+
+// Thin addons. Each is `required`-dependent on core plus its own target mod, and
+// contains no rendering code and no JavaScript.
+include("addon-turtles")
+include("addon-sable")
+include("addon-create")
+
+// Local end-to-end test harness. Never published, never in the bundle jar - it is how
+// you see the whole pipeline working in a browser without needing CC, Sable or Create
+// installed. See dev-harness/README.md.
+include("dev-harness")

@@ -1,0 +1,177 @@
+// Shared configuration for every BlueMap3D module (core and all addons).
+//
+// Per-module identity is NOT read from gradle.properties, because it differs per
+// artifact. Each module sets these in its own build.gradle body:
+//
+//     ext.mod_id          = 'bluemap3d_computercraft'
+//     ext.mod_name        = 'BlueMap3D: Turtles'
+//     ext.mod_description = '...'
+//
+// Anything below that needs those values is therefore configured lazily (providers)
+// or in afterEvaluate, since the module body runs after this plugin is applied.
+
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+    withJavadocJar()
+}
+
+// Set in afterEvaluate, not here: the NeoForge plugin resolves archivesName while it is
+// being applied, which is before the module's build.gradle body has run and therefore
+// before ext.mod_id exists.
+afterEvaluate {
+    base {
+        // e.g. bluemap3d_computercraft-1.21.1
+        archivesName = "${project.ext.mod_id}-${minecraft_version}"
+    }
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = 'NeoForged'
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+    // BlueMap API. Compile-only everywhere; never bundled.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'BlueColored'
+                url = 'https://repo.bluecolored.de/releases'
+            }
+        }
+        filter { includeGroupAndSubgroups('de.bluecolored') }
+    }
+    // CC:Tweaked, for addon-turtles.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'SquidDev'
+                url = 'https://maven.squiddev.cc'
+            }
+        }
+        filter { includeGroup('cc.tweaked') }
+    }
+    // Create and its ecosystem, for addon-create.
+    maven {
+        name = 'Createmod'
+        url = 'https://maven.createmod.net'
+    }
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+    }
+    // Sable has no public maven; addon-sable resolves it from libs/ if present.
+    // See addon-sable/build.gradle.
+}
+
+// Declare capabilities on the outgoing configurations so a consumer can ask for
+// "the bluemap3d core" without knowing the archive name.
+// https://docs.gradle.org/current/userguide/component_capabilities.html
+afterEvaluate {
+    ['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
+        configurations."$variant".outgoing {
+            capability("$group:${project.name}:$version")
+            capability("$group:${project.ext.mod_id}:$version")
+            capability("$group:${project.ext.mod_id}-$minecraft_version:$version")
+        }
+        publishing.publications.configureEach {
+            suppressPomMetadataWarningsFor(variant)
+        }
+    }
+}
+
+// LGPL-3.0-only. Every module carries the licence, from the first commit.
+sourcesJar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_BlueMap3D" }
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_BlueMap3D" }
+    }
+}
+
+afterEvaluate {
+    jar {
+        manifest {
+            attributes([
+                    'Specification-Title'   : project.ext.mod_name,
+                    'Specification-Vendor'  : mod_author,
+                    'Specification-Version' : project.jar.archiveVersion,
+                    'Implementation-Title'  : project.ext.mod_id,
+                    'Implementation-Version': project.jar.archiveVersion,
+                    'Implementation-Vendor' : mod_author,
+                    'Built-On-Minecraft'    : minecraft_version
+            ])
+        }
+    }
+}
+
+afterEvaluate {
+    processResources {
+        var expandProps = [
+                'version'                      : version,
+                'group'                        : project.group,
+                'minecraft_version'            : minecraft_version,
+                'minecraft_version_range'      : minecraft_version_range,
+                'neoforge_version'             : neoforge_version,
+                'neoforge_version_range'       : neoforge_version_range,
+                'neoforge_loader_version_range': neoforge_loader_version_range,
+                'bluemap_version_range'        : bluemap_version_range,
+                'computercraft_version'        : computercraft_version,
+                'create_version'               : create_version,
+                'sable_version'                : sable_version,
+                'mod_name'                     : project.ext.mod_name,
+                'mod_author'                   : mod_author,
+                'mod_id'                       : project.ext.mod_id,
+                'license'                      : license,
+                'description'                  : project.ext.mod_description,
+                'credits'                      : credits,
+                'java_version'                 : java_version
+        ]
+
+        var jsonExpandProps = expandProps.collectEntries { key, value ->
+            [(key): value instanceof String ? value.replace("\n", "\\\\n") : value]
+        }
+
+        filesMatching(['META-INF/neoforge.mods.toml']) {
+            expand expandProps
+        }
+        filesMatching(['pack.mcmeta', '*.mixins.json']) {
+            expand jsonExpandProps
+        }
+
+        inputs.properties(expandProps)
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId = base.archivesName.get()
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            url = System.getenv('local_maven_url') ?: rootProject.layout.buildDirectory.dir('localMaven').get().asFile.toURI()
+        }
+    }
+}

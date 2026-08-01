@@ -1,0 +1,32 @@
+## 1.0.0
+
+First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.21.1.
+
+**Core (`bluemap3d`)**
+- `SceneObjectProvider` / `SceneObject` / `BlockVolume` - the whole extension API, stable
+  from this release.
+- Server-side block-volume mesher: face culling, Minecraft's directional face shading baked
+  into vertex colours, texture atlas packing.
+- Real block models read from resource packs, BlueMap's resource extensions, the vanilla
+  client jar and mod jars, with a map-colour cube as a per-block fallback.
+- Block entities - chests, beds, shulker boxes, signs, banners - via BlueMap's own
+  `resourceExtensions.zip`.
+- Meshes baked once and cached against `geometryVersion()`; only position and rotation are
+  republished per interval.
+- Injected webapp script adds meshes to BlueMap's marker scene and interpolates transforms
+  per frame, with terrain occlusion and dimension filtering.
+
+- `ModelAttachment` for geometry no block state describes - a turtle's modem, an item
+  frame's contents. Item models are extruded from their sprite, since vanilla item models
+  carry no geometry of their own.
+- Blocks drawn live are hidden from BlueMap's terrain tiles, so nothing renders twice.
+- Optional live terrain reload, so a viewer sees mined terrain without refreshing the page.
+
+**Turtles (`bluemap3d_computercraft`)**
+- Live ComputerCraft turtles, with labels. Found through the vanilla block-entity registry
+  rather than CC's implementation classes.
+- Upgrades render: peripherals from CC's own models, tools extruded from their item sprite
+  and placed with CC's own transform.
+
+**Ships (`bluemap3d_sable`), Trains (`bluemap3d_create`)**
+- Modules, dependencies and publishing set up; providers not implemented yet.

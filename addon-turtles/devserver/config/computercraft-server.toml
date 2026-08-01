@@ -1,0 +1,8 @@
+# Dev server config for :addon-turtles:runServer.
+#
+# Fuel off, so the test turtles can wander indefinitely without anyone feeding them coal.
+# Everything else is left at CC's defaults - NeoForge rewrites this file to add them, and
+# anything it does not recognise it silently drops.
+
+[turtle]
+	need_fuel = false

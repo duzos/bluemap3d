@@ -1,0 +1,49 @@
+plugins {
+    id 'bluemap3d-addon'
+    id 'me.modmuss50.mod-publish-plugin'
+}
+
+ext {
+    mod_id = 'bluemap3d_sable'
+    mod_name = 'BlueMap3D: Ships'
+    mod_description = 'Shows Sable ships as real 3D models on your BlueMap. Their blocks live in sub-levels, which is why BlueMap cannot show them otherwise.'
+}
+
+dependencies {
+    // Sable publishes no maven. Drop sable-neoforge-<mc>-<version>.jar into libs/ to
+    // compile against it; without it the module still builds and the provider reports
+    // nothing, which is the correct behaviour for an unimplemented integration.
+    def sableJar = file("libs/sable-neoforge-${minecraft_version}-${sable_version}.jar")
+    if (sableJar.exists()) {
+        compileOnly files(sableJar)
+        logger.lifecycle("addon-sable: compiling against ${sableJar.name}")
+    } else {
+        logger.lifecycle("addon-sable: ${sableJar.name} not in libs/, building the stub provider")
+    }
+}
+
+publishMods {
+    file = tasks.named('jar', Jar).flatMap { it.archiveFile }
+    changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
+    type = STABLE
+    version = "${project.version}-${minecraft_version}"
+    displayName = "BlueMap3D: Ships ${project.version} (${minecraft_version} NeoForge)"
+    modLoaders.add("neoforge")
+
+    def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }
+
+    modrinth {
+        accessToken = providers.environmentVariable("MODRINTH_TOKEN")
+        projectId = providers.environmentVariable("MODRINTH_PROJECT_SABLE")
+        minecraftVersions.addAll(mcVersions)
+        requires { slug = "bluemap3d" }
+    }
+    curseforge {
+        accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
+        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_SABLE")
+        projectSlug = "bluemap3d-ships"
+        minecraftVersions.addAll(mcVersions)
+        clientRequired = false
+        serverRequired = true
+    }
+}

@@ -1,0 +1,54 @@
+plugins {
+    id 'bluemap3d-addon'
+    id 'me.modmuss50.mod-publish-plugin'
+}
+
+ext {
+    mod_id = 'bluemap3d_computercraft'
+    mod_name = 'BlueMap3D: Turtles'
+    mod_description = 'Shows live ComputerCraft turtles as real 3D models on your BlueMap.'
+}
+
+dependencies {
+    // CC:Tweaked's API. Compile-only: the addon declares a `required` dependency on
+    // computercraft in its toml, so it is always present at runtime and must never be
+    // bundled. On 1.21.1 CC publishes its NeoForge artifacts under the "forge" name.
+    compileOnly "cc.tweaked:cc-tweaked-${minecraft_version}-core-api:${computercraft_version}"
+    compileOnly "cc.tweaked:cc-tweaked-${minecraft_version}-forge-api:${computercraft_version}"
+
+    // The real mod, for the dev server. This is what makes :addon-turtles:runServer a
+    // genuine test: actual turtles, running actual Lua, found through the same code path
+    // that runs in production.
+    devMods "cc.tweaked:cc-tweaked-${minecraft_version}-forge:${computercraft_version}"
+}
+
+// The dev server's world content lives in devserver/ - a datapack that places four
+// turtles and turns them on, and a pre-seeded computer filesystem holding the startup.lua
+// each one runs. See devserver/README.md.
+
+publishMods {
+    file = tasks.named('jar', Jar).flatMap { it.archiveFile }
+    changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
+    type = STABLE
+    version = "${project.version}-${minecraft_version}"
+    displayName = "BlueMap3D: Turtles ${project.version} (${minecraft_version} NeoForge)"
+    modLoaders.add("neoforge")
+
+    def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }
+
+    modrinth {
+        accessToken = providers.environmentVariable("MODRINTH_TOKEN")
+        projectId = providers.environmentVariable("MODRINTH_PROJECT_TURTLES")
+        minecraftVersions.addAll(mcVersions)
+        requires { slug = "bluemap3d" }
+        requires { slug = "cc-tweaked" }
+    }
+    curseforge {
+        accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
+        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_TURTLES")
+        projectSlug = "bluemap3d-turtles"
+        minecraftVersions.addAll(mcVersions)
+        clientRequired = false
+        serverRequired = true
+    }
+}

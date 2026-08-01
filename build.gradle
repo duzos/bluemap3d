@@ -1,0 +1,94 @@
+plugins {
+    id 'base'
+}
+
+// bundleJar reaches into the subprojects' jar tasks, and the root project is configured
+// before them. Without this, those task references resolve against unconfigured projects.
+evaluationDependsOnChildren()
+
+// ---------------------------------------------------------------------------------
+// Bundle jar
+//
+// Interim distribution is ONE jar: core, with the three addons jar-in-jar'd. NeoForge
+// loads nested jars from META-INF/jarjar/ using metadata.json, so this is pure
+// packaging - no source changes, and no extra mod id. Publishing the four artifacts
+// separately later means not running this task, nothing more.
+//
+// Precedent for the shape: create-aeronautics-bundled.jar in the user's own pack JiJs
+// dev.eriksonn.aeronautics.aeronautics-neoforge.
+// ---------------------------------------------------------------------------------
+
+def addonPaths = [':addon-turtles', ':addon-sable', ':addon-create']
+
+def bundleMetadata = tasks.register('bundleMetadata') {
+    description = 'Generates META-INF/jarjar/metadata.json listing the nested addon jars.'
+    def outFile = layout.buildDirectory.file('bundle/metadata.json')
+    outputs.file(outFile)
+
+    def ver = version.toString()
+    def entries = addonPaths.collect { path ->
+        def p = project(path)
+        [group: p.group.toString(), jar: p.tasks.named('jar', Jar).flatMap { it.archiveFile }]
+    }
+    entries.each { inputs.file(it.jar) }
+
+    doLast {
+        def jars = entries.collect { e ->
+            def name = e.jar.get().asFile.name
+            // Strip the trailing "-<version>.jar" to recover the artifact id.
+            def artifact = name.replaceFirst(/-\Q${ver}\E\.jar$/, '')
+            """    {
+      "identifier": { "group": "${e.group}", "artifact": "${artifact}" },
+      "version": { "range": "[${ver},)", "artifactVersion": "${ver}" },
+      "path": "META-INF/jarjar/${name}",
+      "isObfuscated": false
+    }"""
+        }
+        def f = outFile.get().asFile
+        f.parentFile.mkdirs()
+        f.text = "{\n  \"jars\": [\n${jars.join(',\n')}\n  ]\n}\n"
+    }
+}
+
+tasks.register('bundleJar', Jar) {
+    group = 'build'
+    description = 'Builds the single-jar distribution: core with all three addons nested.'
+    archiveBaseName = 'bluemap3d-bundle'
+    archiveVersion = "${version}-${minecraft_version}"
+    destinationDirectory = layout.buildDirectory.dir('libs')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    def coreJar = project(':core').tasks.named('jar', Jar).flatMap { it.archiveFile }
+    inputs.file(coreJar)
+
+    // core's classes, resources and toml become the outer mod. Its manifest is
+    // dropped and re-declared below, because a Jar task always writes its own.
+    from(provider { zipTree(coreJar.get().asFile) }) {
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/jarjar/**'
+    }
+
+    manifest {
+        attributes([
+                'Specification-Title'   : 'BlueMap3D',
+                'Specification-Vendor'  : mod_author,
+                'Specification-Version' : version,
+                'Implementation-Title'  : 'bluemap3d-bundle',
+                'Implementation-Version': version,
+                'Implementation-Vendor' : mod_author,
+                'Built-On-Minecraft'    : minecraft_version
+        ])
+    }
+
+    addonPaths.each { path ->
+        from(project(path).tasks.named('jar', Jar)) {
+            into 'META-INF/jarjar'
+        }
+    }
+    from(bundleMetadata) {
+        into 'META-INF/jarjar'
+    }
+}
+
+// Not wired into `assemble` on purpose: `./gradlew build` should build the four
+// publishable modules, and the bundle is a separate, explicit distribution step.

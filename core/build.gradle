@@ -1,0 +1,51 @@
+plugins {
+    id 'bluemap3d-module'
+    id 'me.modmuss50.mod-publish-plugin'
+}
+
+ext {
+    mod_id = 'bluemap3d'
+    mod_name = 'BlueMap3D'
+    mod_description = 'Renders real 3D geometry inside BlueMap\'s three.js scene. A library: install an addon to see something.'
+}
+
+// HARD RULE: core must not reference Create, Sable or CC:Tweaked in any way. No imports,
+// no classpath dependency, no soft-compat shims. It compiles and runs standalone with
+// zero addons and does nothing. That single rule is what makes the module split trivial
+// and lets core be published on its own.
+//
+// The only dependency beyond Minecraft and NeoForge is the BlueMap API, declared
+// compileOnly by the bluemap3d-module convention plugin.
+
+publishMods {
+    file = tasks.named('jar', Jar).flatMap { it.archiveFile }
+    changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
+    type = STABLE
+    version = "${project.version}-${minecraft_version}"
+    displayName = "BlueMap3D ${project.version} (${minecraft_version} NeoForge)"
+    modLoaders.add("neoforge")
+
+    def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }
+
+    modrinth {
+        accessToken = providers.environmentVariable("MODRINTH_TOKEN")
+        // TODO: replace once the bluemap3d slug is reserved on Modrinth.
+        projectId = providers.environmentVariable("MODRINTH_PROJECT_BLUEMAP3D")
+        minecraftVersions.addAll(mcVersions)
+        requires { slug = "bluemap" }
+    }
+    curseforge {
+        accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
+        // TODO: replace once the project is created on CurseForge.
+        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_BLUEMAP3D")
+        projectSlug = "bluemap3d"
+        minecraftVersions.addAll(mcVersions)
+        clientRequired = false
+        serverRequired = true
+    }
+    discord {
+        webhookUrl = providers.environmentVariable("DISCORD_WEBHOOK")
+        username = "BlueMap3D"
+        content = "**BlueMap3D ${project.version}** released for Minecraft ${minecraft_version} (NeoForge)"
+    }
+}

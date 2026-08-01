@@ -1,0 +1,186 @@
+// A local dev server for whichever module applies this.
+//
+// Every module gets one, because "does it actually render in a browser" is the only
+// question that matters and it should be one command away in each module rather than in
+// one shared place that has to be configured for whichever addon you are working on.
+//
+//   ./gradlew :<module>:prepareDevServer -Paccept_licences
+//   ./gradlew :<module>:runServer
+//   open http://localhost:8100
+//
+// A module opts into extra mods and world content two ways:
+//
+//   dependencies { devMods "cc.tweaked:cc-tweaked-1.21.1-forge:1.120.0" }
+//
+//     Resolved from maven and dropped into run/server/mods. Non-transitive: mod jars
+//     bundle what they need, and pulling their compile graph in would drag half of
+//     Maven Central into a mods folder.
+//
+//   <module>/devserver/**
+//
+//     Copied over run/server verbatim. That is where a test datapack, a pre-seeded
+//     computer filesystem or a mod config goes.
+
+configurations {
+    devMods {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+def devServerDir = layout.projectDirectory.dir('run/server')
+
+tasks.register('prepareDevServer') {
+    group = 'bluemap3d'
+    description = 'Sets up run/server with BlueMap, this module, and a superflat world.'
+
+    def devModJars = configurations.devMods
+    def overlay = layout.projectDirectory.dir('devserver')
+    def target = devServerDir
+    def accepted = project.hasProperty('accept_licences')
+    def explicitBlueMap = project.findProperty('bluemap_jar')
+    def levelType = project.findProperty('dev_level_type') ?: 'minecraft:flat'
+
+    inputs.files(devModJars)
+
+    doLast {
+        def dir = target.asFile
+        def mods = new File(dir, 'mods')
+        mods.mkdirs()
+        new File(dir, 'config').mkdirs()
+
+        // BlueMap. It publishes only bluemap-api and bluemap-common to maven, not a
+        // runnable mod jar, so this comes off disk.
+        def blueMap = explicitBlueMap ? new File(explicitBlueMap.toString()) : findBlueMapJar()
+        if (blueMap?.exists()) {
+            new File(mods, blueMap.name).bytes = blueMap.bytes
+            logger.lifecycle("BlueMap:   ${blueMap.name}")
+        } else {
+            logger.warn("""
+                No BlueMap jar found. Without it there is no map to look at.
+                Either put bluemap-<version>-neoforge.jar in ${mods}, or re-run with
+                  -Pbluemap_jar=/path/to/bluemap-5.7-neoforge.jar
+                """.stripIndent())
+        }
+
+        devModJars.each { jar ->
+            new File(mods, jar.name).bytes = jar.bytes
+            logger.lifecycle("Dev mod:   ${jar.name}")
+        }
+
+        // generator-settings is explicit rather than left blank: an empty flat config
+        // logs "No key layers in MapLike[{}]" and falls back to a default that is not
+        // guaranteed to stay the same, and test content is placed at a hard-coded y.
+        // These layers put the walkable surface at y=-60.
+        def flatLayers = '{"layers":[{"block":"minecraft:bedrock","height":1},' +
+                '{"block":"minecraft:dirt","height":2},' +
+                '{"block":"minecraft:grass_block","height":1}],"biome":"minecraft:plains"}'
+
+        new File(dir, 'server.properties').text = """\
+            # Written by :${project.name}:prepareDevServer
+            level-type=${levelType}
+            level-name=world
+            generator-settings=${levelType == 'minecraft:flat' ? flatLayers : ''}
+            gamemode=creative
+            online-mode=false
+            spawn-protection=0
+            view-distance=8
+            simulation-distance=8
+            max-tick-time=-1
+            sync-chunk-writes=false
+            allow-flight=true
+            motd=BlueMap3D dev server (${project.name})
+            # RCON, so the server can be inspected and driven while it runs - which is
+            # how you tell "the object is not published" from "the thing it tracks is
+            # not doing anything". Local dev only.
+            enable-rcon=true
+            rcon.port=25575
+            rcon.password=bluemap3d
+            """.stripIndent()
+
+        // Two licence acceptances, both gated behind -Paccept_licences.
+        def eula = new File(dir, 'eula.txt')
+        if (!eula.exists() || accepted) {
+            eula.text = "# https://aka.ms/MinecraftEULA\neula=${accepted}\n"
+        }
+
+        // BlueMap needs the vanilla client jar for terrain tiles and for block textures;
+        // accept-download is it asking to fetch that from Mojang. Written before the
+        // first launch so there is no start, edit, restart cycle.
+        ['bluemap', 'config/bluemap'].each { relative ->
+            def configDir = new File(dir, relative)
+            configDir.mkdirs()
+            def core = new File(configDir, 'core.conf')
+            if (!core.exists() || accepted) {
+                core.text = """\
+                    ## Written by :${project.name}:prepareDevServer
+                    accept-download: ${accepted}
+                    data: "bluemap"
+                    render-thread-count: 1
+                    metrics: false
+                    """.stripIndent()
+            }
+            def webserver = new File(configDir, 'webserver.conf')
+            if (!webserver.exists()) {
+                webserver.text = '''\
+                    ## Written by :prepareDevServer
+                    enabled: true
+                    webroot: "bluemap/web"
+                    ip: "0.0.0.0"
+                    port: 8100
+                    '''.stripIndent()
+            }
+        }
+
+        // Module-specific world content, configs and anything else.
+        if (overlay.asFile.isDirectory()) {
+            project.copy {
+                from overlay
+                into dir
+                // devserver/README.md documents the overlay; it is not part of it.
+                exclude '**/*.md'
+            }
+            logger.lifecycle("Overlay:   ${project.name}/devserver -> run/server")
+        }
+
+        if (!accepted) {
+            logger.lifecycle("""
+                ------------------------------------------------------------------
+                Two licence flags are OFF. Re-run with -Paccept_licences to set
+                both, or edit by hand:
+
+                  ${new File(dir, 'eula.txt')}
+                      eula=false -> eula=true
+                  ${new File(dir, 'bluemap/core.conf')}
+                      accept-download: false -> true
+
+                Without the second one the map is blank and objects render as flat
+                map-colour cubes. They still move, so the pipeline is testable.
+                ------------------------------------------------------------------
+                """.stripIndent())
+        }
+
+        logger.lifecycle("Ready. ./gradlew :${project.name}:runServer   then   http://localhost:8100")
+    }
+}
+
+/**
+ * Finds a BlueMap jar without needing an argument in the common case.
+ */
+def findBlueMapJar() {
+    def roots = [
+            file('libs'),
+            rootProject.file('libs'),
+            new File('E:/Modrinth/profiles/Summerhelm Modpack 2.0.0 (1)/mods'),
+    ]
+    for (root in roots) {
+        if (root.isDirectory()) {
+            def hit = root.listFiles()?.find { it.name ==~ /bluemap-.*-neoforge\.jar/ }
+            if (hit) {
+                return hit
+            }
+        }
+    }
+    return null
+}
