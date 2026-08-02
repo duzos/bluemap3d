@@ -102,9 +102,17 @@ public final class VolumeMesher {
                     // Model space is 0..16 per block; the mesh is in block units,
                     // relative to the pivot so the browser only has to write a
                     // position and a quaternion.
-                    worldPos[i * 3] = (float) (x + model[i * 3] / 16f - pivot.x);
-                    worldPos[i * 3 + 1] = (float) (y + model[i * 3 + 1] / 16f - pivot.y);
-                    worldPos[i * 3 + 2] = (float) (z + model[i * 3 + 2] / 16f - pivot.z);
+                    //
+                    // Subtract the pivot first, and in double. A volume's coordinates are
+                    // the source's, and a Sable ship's are its plot's - about 2.05e7,
+                    // which is past where a float can tell one block from the next, let
+                    // alone a sixteenth of one. Written the obvious way round, `x + m/16f`
+                    // is evaluated as a float and the model offset is gone before the
+                    // pivot ever gets subtracted. It looks fine on a turtle at the origin
+                    // and shreds a ship.
+                    worldPos[i * 3] = (float) (x - pivot.x + model[i * 3] / 16.0);
+                    worldPos[i * 3 + 1] = (float) (y - pivot.y + model[i * 3 + 1] / 16.0);
+                    worldPos[i * 3 + 2] = (float) (z - pivot.z + model[i * 3 + 2] / 16.0);
                 }
 
                 float shade = ModelQuad.shadeOf(quad.shadeFace());
@@ -180,9 +188,10 @@ public final class VolumeMesher {
                     my = scratch.y;
                     mz = scratch.z;
                 }
-                worldPos[i * 3] = (float) (x + mx - pivot.x);
-                worldPos[i * 3 + 1] = (float) (y + my - pivot.y);
-                worldPos[i * 3 + 2] = (float) (z + mz - pivot.z);
+                // Pivot first and in double, for the same reason as above.
+                worldPos[i * 3] = (float) (x - pivot.x + mx);
+                worldPos[i * 3 + 1] = (float) (y - pivot.y + my);
+                worldPos[i * 3 + 2] = (float) (z - pivot.z + mz);
             }
             float shade = ModelQuad.shadeOf(quad.shadeFace());
             int tint = quad.tint();
