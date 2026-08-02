@@ -576,7 +576,22 @@ public final class ResourcePackSource implements BlockModelSource {
         }
     }
 
-    /** A variant's whole-model rotation, in 90 degree steps about the block centre. */
+    /**
+     * A variant's whole-model rotation, in 90 degree steps about the block centre.
+     *
+     * <p>Both steps turn the <em>negative</em> way, which is what a blockstate's {@code x}
+     * and {@code y} mean: vanilla builds them as {@code rotationXYZ(-x, -y, 0)}. Written
+     * the positive way round every rotated model comes out mirrored through the axis - a
+     * {@code facing=south} stair points north - and, worse, disagrees with
+     * {@link #rotateDirection}, which is correct. A face then carries a cull direction
+     * belonging to the face on the opposite side, so it is tested against the wrong
+     * neighbour: a barrel on the ground loses its lid, because the quad that ended up on
+     * top is asking whether the block <em>below</em> hides it.
+     *
+     * <p>Nothing caught this for a long time because nothing exercised it. A turtle has
+     * its facing baked out of the model and streamed as a quaternion instead, and a ship
+     * made of planks looks the same whichever way its blocks are turned.
+     */
     private static void applyVariantRotation(float[] corners, int rotX, int rotY) {
         int stepsX = normaliseSteps(rotX);
         int stepsY = normaliseSteps(rotY);
@@ -585,12 +600,14 @@ public final class ResourcePackSource implements BlockModelSource {
             float y = corners[i * 3 + 1] - 8f;
             float z = corners[i * 3 + 2] - 8f;
             for (int s = 0; s < stepsX; s++) {
-                float ny = -z, nz = y;
+                // up -> north, matching rotateAroundX.
+                float ny = z, nz = -y;
                 y = ny;
                 z = nz;
             }
             for (int s = 0; s < stepsY; s++) {
-                float nx = z, nz = -x;
+                // north -> east, matching Direction.getClockWise.
+                float nx = -z, nz = x;
                 x = nx;
                 z = nz;
             }

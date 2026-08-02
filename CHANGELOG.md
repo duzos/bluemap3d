@@ -16,6 +16,11 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Mesh vertices are made pivot-relative in double precision, so a volume read from
   coordinates a long way from the origin - a Sable ship's plot, out at 2e7 - keeps its
   shape instead of collapsing onto the float grid.
+- Blockstate `x`/`y` rotation turns the model the way vanilla does. It was turning the
+  opposite way, which mirrored every rotated model - a `facing=south` stair pointed north -
+  and put each quad's cull face on the opposite side of the block, so a rotated block lost
+  whichever face was against a neighbour. A barrel on the floor came out with no lid and
+  its underside showing.
 - Texture atlases carry a gutter of repeated edge pixels and are mipmapped in the browser,
   so thin high-contrast geometry stops shimmering when the map is zoomed out.
 - Blocks that no source could model are named in the log instead of silently becoming
