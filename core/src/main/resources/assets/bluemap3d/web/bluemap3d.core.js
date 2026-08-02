@@ -643,9 +643,24 @@
             return materialCache[atlasUrl];
         }
         var texture = new THREE.TextureLoader().load(atlasUrl);
+        /* Crisp texels close up - this is Minecraft, a blurry oak plank is wrong. */
         texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        texture.generateMipmaps = false;
+        /* Filtered when minified, which is the opposite decision and the right one.
+         * Point-sampling a sprite that is smaller on screen than it is in the atlas
+         * makes every pixel pick whichever texel it happens to land on, and a fraction
+         * of camera movement makes it pick a different one. On a plank face nobody
+         * notices; on something a sixteenth of a block thick and high-contrast - the
+         * antenna on Create's redstone link is the one that gave this away - it reads
+         * as the texture flickering.
+         *
+         * Safe only because the baker leaves a gutter of repeated edge pixels around
+         * every tile. Mipmapping a bare atlas averages across tile boundaries and
+         * bleeds one sprite into the next. */
+        texture.minFilter = THREE.NearestMipmapLinearFilter;
+        texture.generateMipmaps = true;
+        /* Thin geometry is usually seen at a glancing angle, which is exactly the case
+         * mipmapping alone over-blurs. */
+        texture.anisotropy = 4;
         /* Minecraft measures v from the top of a texture, and the baker emits uvs in
          * that convention. three.js flips images on upload by default, which would
          * turn every face upside down. */
