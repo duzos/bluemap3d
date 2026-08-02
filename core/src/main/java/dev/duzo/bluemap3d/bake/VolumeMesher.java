@@ -71,6 +71,10 @@ public final class VolumeMesher {
         BlockModelSource occluder = sources.get(0);
 
         float[] worldPos = new float[12];
+        // Blocks nothing could model faithfully, reported once at the end. An admin
+        // seeing a grey lump wants the block's name, and there is nowhere else to get
+        // it: the fallback is per block and silent by design.
+        java.util.Set<String> unresolved = new java.util.TreeSet<>();
 
         volume.forEachBlock((x, y, z, state) -> {
             BlockModelSource source = null;
@@ -82,6 +86,10 @@ public final class VolumeMesher {
                     quads = got;
                     break;
                 }
+            }
+            if (source == null || !source.isFaithful()) {
+                unresolved.add(net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                        .getKey(state.getBlock()).toString());
             }
             if (source == null) {
                 return;
@@ -130,6 +138,13 @@ public final class VolumeMesher {
         // Emitted into the same buffer and atlas, so they cost nothing extra at render time.
         for (dev.duzo.bluemap3d.api.ModelAttachment attachment : volume.attachments()) {
             emitAttachment(attachment, pivot, atlas, mesh, worldPos);
+        }
+
+        if (!unresolved.isEmpty()) {
+            LOGGER.info("No model found for {} block type(s); drawn as map-colour cubes: {}. "
+                            + "Supply models for these through bluemap3d.assets.sources "
+                            + "if you want them textured.",
+                    unresolved.size(), String.join(", ", unresolved));
         }
 
         if (mesh.isEmpty()) {

@@ -65,4 +65,17 @@ public interface BlockModelSource {
      * triangles, so implementations should err strict.
      */
     boolean occludes(BlockState state);
+
+    /**
+     * Whether this source reproduces a block's real shape and texture, or is standing in
+     * for one that could not be found.
+     *
+     * <p>Only {@link MapColorSource} says no. The mesher uses it to tell an admin which
+     * blocks it could not resolve, which is the difference between "the mod is broken"
+     * and "that block has no model on a server and here is its name so you can supply
+     * one".
+     */
+    default boolean isFaithful() {
+        return true;
+    }
 }

@@ -48,6 +48,11 @@ public final class MapColorSource implements BlockModelSource {
         return isFullOpaqueCube(state);
     }
 
+    @Override
+    public boolean isFaithful() {
+        return false;
+    }
+
     private static List<ModelQuad> build(BlockState state) {
         int tint = mapColorOf(state);
         if (tint < 0) {
