@@ -12,41 +12,28 @@ import java.util.Map;
  * almost always the same size within a pack, so a grid wastes very little and avoids a
  * packer's worth of code and bugs. Sprites of other sizes are scaled to the tile size.
  *
- * <p>Three pitfalls are handled here because all of them are silent when wrong:
+ * <p>Two pitfalls are handled here because both are silent when wrong:
  * <ul>
  *   <li><b>Animated textures</b> are stored as a vertical strip of frames. Packing the
  *       whole strip squashes the sprite; only the first frame is taken.</li>
  *   <li><b>Edge bleeding</b>: with a shared atlas, a uv exactly on a tile boundary can
  *       sample its neighbour. Uvs are inset by half a texel.</li>
- *   <li><b>Minification shimmer</b>: see the gutter below.</li>
  * </ul>
  *
- * <h2>The gutter</h2>
- * Every tile is surrounded by a border of its own edge pixels, repeated outwards. It
- * exists so the browser can mipmap the atlas.
+ * <h2>Why this is not mipmapped</h2>
+ * It was, briefly, to stop thin high-contrast geometry shimmering when the map is zoomed
+ * out - the antenna on Create's redstone link is the case that shows it. It made every
+ * texture blurry and had to come out.
  *
- * <p>Without mipmaps, a sprite drawn smaller than its own resolution - which is what
- * happens to anything on a map the moment you zoom out - is point-sampled, and each
- * screen pixel picks whichever texel it lands on. Move the camera a fraction and it
- * lands on a different one. On a large flat face nobody notices; on something a
- * sixteenth of a block thick and high-contrast, like Create's redstone link antenna,
- * it reads as the texture flickering.
- *
- * <p>Mipmaps fix that, but not on a bare atlas: at every level the filter averages a
- * wider area, and past the first level it would be averaging across the tile boundary
- * into an unrelated sprite. The gutter is what it averages instead, and edge pixels
- * repeated outward are exactly what a standalone texture would have given.
+ * <p>The reason is the grid. Every tile is scaled up to the largest sprite in the atlas,
+ * which is 64 or 128 pixels the moment one high-resolution texture is in the same mesh.
+ * The mip level a fragment picks comes from how many atlas texels it covers, so anything
+ * drawn smaller on screen than the tile size is minified and blurred - and at map zoom a
+ * block is a couple of dozen pixels, well under it. The shimmer is real but it is the
+ * lesser problem, and fixing it properly means either packing tiles at their native size
+ * instead of a uniform grid, or clamping the mip level in a shader.
  */
 final class TextureAtlas {
-
-    /**
-     * Border of repeated edge pixels around each tile, as a fraction of the tile.
-     *
-     * <p>An eighth is two pixels on a 16 pixel sprite, which keeps the first two mip
-     * levels clean - by the third a tile is down to a couple of pixels on screen and
-     * whatever it bleeds is indistinguishable anyway.
-     */
-    private static final int GUTTER_DIVISOR = 8;
 
     /** Sprite ids in insertion order; index in this map is the grid slot. */
     private final Map<String, Integer> slots = new LinkedHashMap<>();
@@ -57,8 +44,6 @@ final class TextureAtlas {
     /** Grid geometry, valid after {@link #build()}. */
     private int columns = 1;
     private int atlasSize = 16;
-    private int gutter = 2;
-    private int cellSize = 20;
 
     /**
      * Adds a sprite if absent and returns its slot.
@@ -91,66 +76,21 @@ final class TextureAtlas {
         int n = Math.max(slots.size(), 1);
         columns = (int) Math.ceil(Math.sqrt(n));
         int rows = (int) Math.ceil(n / (double) columns);
-        gutter = Math.max(1, tileSize / GUTTER_DIVISOR);
-        cellSize = tileSize + 2 * gutter;
-        // Rounded up to a power of two. The grid rarely lands on one by itself once the
-        // gutter is added, and a non-power-of-two texture cannot be mipmapped at all on
-        // WebGL 1 - it renders black rather than degrading. The slack is unused atlas
-        // that no uv points at.
-        atlasSize = nextPowerOfTwo(Math.max(columns, rows) * cellSize);
+        atlasSize = Math.max(columns, rows) * tileSize;
 
         BufferedImage atlas = new BufferedImage(atlasSize, atlasSize, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = atlas.createGraphics();
         try {
             for (Map.Entry<Integer, BufferedImage> e : images.entrySet()) {
                 int slot = e.getKey();
-                g.drawImage(cell(e.getValue()),
-                        (slot % columns) * cellSize, (slot / columns) * cellSize, null);
+                int x = (slot % columns) * tileSize;
+                int y = (slot / columns) * tileSize;
+                g.drawImage(e.getValue(), x, y, tileSize, tileSize, null);
             }
         } finally {
             g.dispose();
         }
         return atlas;
-    }
-
-    /**
-     * One sprite, scaled to the tile size and surrounded by its own repeated edge pixels.
-     *
-     * <p>Built as its own image and then blitted whole. Extending the border in place, by
-     * reading the atlas back through the same {@code Graphics2D} that is writing it, is
-     * not defined to work and in practice smears each sprite sideways across its
-     * neighbours - which then shows up as faces disappearing, because a uv window landing
-     * on the wrong content plus an alpha test is an invisible quad.
-     */
-    private BufferedImage cell(BufferedImage sprite) {
-        BufferedImage out = new BufferedImage(cellSize, cellSize, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = out.createGraphics();
-        try {
-            g.drawImage(sprite, gutter, gutter, tileSize, tileSize, null);
-        } finally {
-            g.dispose();
-        }
-
-        // Pixel copies rather than more drawImage calls: the source and the destination
-        // are the same raster, so this has to be a read-then-write and nothing else.
-        int last = gutter + tileSize - 1;
-        for (int y = gutter; y <= last; y++) {
-            int left = out.getRGB(gutter, y);
-            int right = out.getRGB(last, y);
-            for (int i = 0; i < gutter; i++) {
-                out.setRGB(gutter - 1 - i, y, left);
-                out.setRGB(last + 1 + i, y, right);
-            }
-        }
-        for (int x = 0; x < cellSize; x++) {
-            int top = out.getRGB(x, gutter);
-            int bottom = out.getRGB(x, last);
-            for (int i = 0; i < gutter; i++) {
-                out.setRGB(x, gutter - 1 - i, top);
-                out.setRGB(x, last + 1 + i, bottom);
-            }
-        }
-        return out;
     }
 
     /**
@@ -164,14 +104,11 @@ final class TextureAtlas {
      */
     void mapUv(int slot, float[] uv16, float[] out) {
         float tile = tileSize / (float) atlasSize;
-        float cell = cellSize / (float) atlasSize;
-        float pad = gutter / (float) atlasSize;
-        // The tile itself, inside its gutter.
-        float originU = (slot % columns) * cell + pad;
-        float originV = (slot / columns) * cell + pad;
+        float originU = (slot % columns) * tile;
+        float originV = (slot / columns) * tile;
 
-        // Half a texel, so a uv sitting exactly on the boundary lands inside the tile
-        // rather than on the first pixel of the gutter.
+        // Half a texel, so a uv sitting exactly on the boundary cannot sample the
+        // neighbouring tile.
         float inset = 0.5f / atlasSize;
 
         for (int i = 0; i < 4; i++) {
@@ -206,13 +143,5 @@ final class TextureAtlas {
 
     private static float clamp(float v, float lo, float hi) {
         return v < lo ? lo : Math.min(v, hi);
-    }
-
-    private static int nextPowerOfTwo(int value) {
-        int n = 16;
-        while (n < value) {
-            n <<= 1;
-        }
-        return n;
     }
 }

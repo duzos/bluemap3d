@@ -21,8 +21,6 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
   and put each quad's cull face on the opposite side of the block, so a rotated block lost
   whichever face was against a neighbour. A barrel on the floor came out with no lid and
   its underside showing.
-- Texture atlases carry a gutter of repeated edge pixels and are mipmapped in the browser,
-  so thin high-contrast geometry stops shimmering when the map is zoomed out.
 - Blocks that no source could model are named in the log instead of silently becoming
   coloured cubes. See [core/BLOCK-ENTITIES.md](core/BLOCK-ENTITIES.md).
 - Injected webapp script adds meshes to BlueMap's marker scene and interpolates transforms
