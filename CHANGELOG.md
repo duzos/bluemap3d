@@ -13,6 +13,9 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
   `resourceExtensions.zip`.
 - Meshes baked once and cached against `geometryVersion()`; only position and rotation are
   republished per interval.
+- Mesh vertices are made pivot-relative in double precision, so a volume read from
+  coordinates a long way from the origin - a Sable ship's plot, out at 2e7 - keeps its
+  shape instead of collapsing onto the float grid.
 - Injected webapp script adds meshes to BlueMap's marker scene and interpolates transforms
   per frame, with terrain occlusion and dimension filtering.
 
@@ -28,5 +31,13 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Upgrades render: peripherals from CC's own models, tools extruded from their item sprite
   and placed with CC's own transform.
 
-**Ships (`bluemap3d_sable`), Trains (`bluemap3d_create`)**
-- Modules, dependencies and publishing set up; providers not implemented yet.
+**Ships (`bluemap3d_sable`)**
+- Live Sable ships, named, meshed out of the sub-level plots BlueMap cannot see. Pivoted on
+  the ship's centre of mass, which is what its physics turns about.
+- Re-meshed only when the block set changes, never when the ship moves - a hull sails for
+  the cost of a transform.
+- Terrain a ship invalidates by appearing or being shattered back into the world is queued
+  for re-render.
+
+**Trains (`bluemap3d_create`)**
+- Module, dependencies and publishing set up; provider not implemented yet.

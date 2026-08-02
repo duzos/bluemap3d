@@ -16,6 +16,15 @@ dependencies {
     def sableJar = file("libs/sable-neoforge-${minecraft_version}-${sable_version}.jar")
     if (sableJar.exists()) {
         compileOnly files(sableJar)
+        // Sable's maths types - Pose3d, BoundingBox3i - are in sable-companion, which it
+        // ships as a jar-in-jar. The loader unpacks that at runtime; at compile time we
+        // have to, or every pose and bounds call is unresolvable.
+        compileOnly zipTree(sableJar).matching {
+            include 'META-INF/jarjar/sable-companion-common-*.jar'
+        }
+        // The real mod, for the dev server. Same jar: there is nothing to resolve it from,
+        // so this is what makes :addon-sable:runServer a genuine test rather than a mock.
+        devMods files(sableJar)
         logger.lifecycle("addon-sable: compiling against ${sableJar.name}")
     } else {
         logger.lifecycle("addon-sable: ${sableJar.name} not in libs/, building the stub provider")

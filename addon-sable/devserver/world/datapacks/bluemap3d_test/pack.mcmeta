@@ -1,0 +1,6 @@
+{
+    "pack": {
+        "description": "BlueMap3D ship test: builds two ships, assembles them into sub-levels, and sails one.",
+        "pack_format": 48
+    }
+}
