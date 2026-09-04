@@ -111,17 +111,19 @@ final class ObjModelReader {
                         continue;
                     }
 
-                    // Only the first three vertices are used. A quad or n-gon face would
-                    // be silently cut down to a triangle here, so warn once rather than
-                    // producing geometry that is quietly missing area.
-                    if (tokens.length > 4 && !warnedNGon) {
-                        LOGGER.debug("Obj face has more than three vertices; only the first three are used: {}", line);
+                    // A face may be a triangle, a quad or an n-gon, and all three turn
+                    // up in practice: meshes exported triangulated are all triangles,
+                    // while ones exported as-modelled are mostly quads. Read every vertex
+                    // and fan the face from its first corner, so nothing is dropped.
+                    int corners0 = tokens.length - 1;
+                    float[][] pos = new float[corners0][];
+                    float[][] uv = new float[corners0][];
+                    boolean ok = corners0 >= 3;
+                    if (!ok && !warnedNGon) {
+                        LOGGER.debug("Obj face has fewer than three vertices: {}", line);
                         warnedNGon = true;
                     }
-                    float[] corners = new float[12];
-                    float[] uvCorners = new float[8];
-                    boolean ok = true;
-                    for (int i = 0; i < 3; i++) {
+                    for (int i = 0; ok && i < corners0; i++) {
                         int[] indices = parseFaceVertex(tokens[i + 1]);
                         if (indices == null) {
                             LOGGER.debug("Unparsable obj face vertex: {}", line);
@@ -141,17 +143,29 @@ final class ObjModelReader {
                             ok = false;
                             break;
                         }
-                        System.arraycopy(positions.get(indices[0]), 0, corners, i * 3, 3);
-                        System.arraycopy(uvs.get(indices[1]), 0, uvCorners, i * 2, 2);
+                        pos[i] = positions.get(indices[0]);
+                        uv[i] = uvs.get(indices[1]);
                     }
                     if (!ok) {
                         continue;
                     }
-                    // Repeat the third vertex to make the triangle a degenerate quad.
-                    System.arraycopy(corners, 6, corners, 9, 3);
-                    System.arraycopy(uvCorners, 4, uvCorners, 6, 2);
 
-                    out.add(new ModelQuad(null, null, corners, uvCorners, texture, 0xFFFFFF));
+                    // Fan from corner 0. A quad emits one real quad; a triangle emits one
+                    // with its last vertex repeated, which is a degenerate edge the GPU
+                    // discards; anything larger emits several. Winding is preserved
+                    // because each step keeps the source order.
+                    for (int i = 1; i + 1 < corners0; i += 2) {
+                        boolean haveFourth = i + 2 < corners0;
+                        int d = haveFourth ? i + 2 : i + 1;
+                        float[] corners = new float[12];
+                        float[] uvCorners = new float[8];
+                        int[] pick = {0, i, i + 1, d};
+                        for (int c = 0; c < 4; c++) {
+                            System.arraycopy(pos[pick[c]], 0, corners, c * 3, 3);
+                            System.arraycopy(uv[pick[c]], 0, uvCorners, c * 2, 2);
+                        }
+                        out.add(new ModelQuad(null, null, corners, uvCorners, texture, 0xFFFFFF));
+                    }
                 }
                 default -> {
                     // vn, o, g, s, mtllib and anything else: irrelevant to geometry we
