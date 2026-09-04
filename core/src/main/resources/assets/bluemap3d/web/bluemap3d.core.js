@@ -497,13 +497,22 @@
                     /* group.position is pivot plus the orbit offset; nodeMesh's own
                      * position (set once, in replaceMesh) is -pivot, so the two cancel
                      * and the part ends up displaced from its baked position by exactly
-                     * the orbit offset - never rotated, per KIND_ORBIT's contract. */
+                     * the orbit offset - never rotated, per KIND_ORBIT's contract.
+                     *
+                     * The (c - 1) in place of c makes the displacement relative to the
+                     * orbit's own zero-angle pose instead of relative to the pivot: at
+                     * theta = 0 the offset is exactly zero, so the baked geometry's
+                     * position IS the rest pose, whichever direction perpendicularBasis
+                     * happens to have picked for u. Without the -1, callers would need to
+                     * know that axis-derived direction to bake a correct rest pose, and
+                     * any change to perpendicularBasis would silently move every orbiting
+                     * part's rest position. */
                     var theta = node.period > 0 ? value / node.period : 0;
                     var c = Math.cos(theta), s = Math.sin(theta);
                     group.position.set(
-                        node.pivot.x + node.radius * (c * node.orbitU.x + s * node.orbitV.x),
-                        node.pivot.y + node.radius * (c * node.orbitU.y + s * node.orbitV.y),
-                        node.pivot.z + node.radius * (c * node.orbitU.z + s * node.orbitV.z)
+                        node.pivot.x + node.radius * ((c - 1) * node.orbitU.x + s * node.orbitV.x),
+                        node.pivot.y + node.radius * ((c - 1) * node.orbitU.y + s * node.orbitV.y),
+                        node.pivot.z + node.radius * ((c - 1) * node.orbitU.z + s * node.orbitV.z)
                     );
                 } else if (node.kind === KIND_RATE) {
                     /* Driven by wall-clock time, not by "value" (the odometer) - a

@@ -148,11 +148,12 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      * fixed - a bogey pin. Unlike {@link Spin}, the geometry never turns; only its
      * position moves.
      *
-     * <p>The browser places the part at {@code radius} from the pivot, at angle
-     * {@code travel / period}, measured in a plane perpendicular to {@code axis}. The
-     * part must be baked already offset from the pivot by {@code radius} in that plane's
-     * zero-angle direction (the browser's own axis-derived reference direction), the same
-     * way a {@link Spin}'s radius has to match what is actually drawn.
+     * <p>The browser displaces the part from its baked position by {@code radius} times
+     * the difference between the current angle ({@code travel / period}, measured in a
+     * plane perpendicular to {@code axis}) and angle zero, so the displacement is always
+     * zero at {@code travel = 0}. Bake the part where it should sit at rest, and it will
+     * orbit from there - the caller never needs to know which direction in that plane the
+     * browser treats as its own zero-angle reference.
      *
      * @param pivot  the point the part orbits, in the model's own 0..16 space
      * @param axis   the orbit's axis, in the model's own 0..16 space. Normalised on
