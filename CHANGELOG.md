@@ -22,7 +22,7 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
   whichever face was against a neighbour. A barrel on the floor came out with no lid and
   its underside showing.
 - Blocks that no source could model are named in the log instead of silently becoming
-  coloured cubes. See [core/BLOCK-ENTITIES.md](core/BLOCK-ENTITIES.md).
+  coloured cubes.
 - Injected webapp script adds meshes to BlueMap's marker scene and interpolates transforms
   per frame, with terrain occlusion and dimension filtering.
 

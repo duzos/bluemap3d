@@ -114,10 +114,11 @@ The parts most likely to bite, all recorded in the source where they apply:
 - **Drawing things twice** - `HiddenBlockPack`, including the config-vs-data directory trap
   that fails silently.
 - **Terrain that changes** - `TileRefreshQueue` and the terrain reload in the client script.
-- **Blocks with no model** - [BLOCK-ENTITIES.md](BLOCK-ENTITIES.md). Which block entities
-  resolve and which do not, why Create's belt is the one that fails, and the four things
-  that could be done about it. Core now names them in the log rather than leaving you to
-  guess which grey lump was which.
+- **Blocks with no model** - `AssetIndex` and `ResourcePackSource`. A block the client
+  draws with a block-entity renderer has a stub model with no geometry, so nothing can be
+  read for it. Core names those in the log at the end of a bake rather than leaving you to
+  guess which grey lump was which, and `assets.shapeFallback` will draw them from their
+  voxel outline instead of a coloured cube.
 - **Volumes a long way from the origin** - `VolumeMesher`, on why the pivot is subtracted
   first and in double. A Sable ship's blocks live out at about 2e7, past where a float can
   tell one block from the next; get the order wrong and the model offsets are gone before
