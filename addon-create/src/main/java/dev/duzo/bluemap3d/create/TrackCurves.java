@@ -23,8 +23,8 @@ import java.util.Map;
  * also violate {@link dev.duzo.bluemap3d.api.SceneObjectProvider}'s contract to return
  * already-tracked state rather than scanning chunks each publish.
  *
- * <p>Discovery only, for now. No geometry is derived from what is found here; that is
- * the next task, once this is known to enumerate correctly.
+ * <p>Discovery only - {@link CurvedTrackProvider} is what turns what is found here into
+ * geometry.
  */
 public final class TrackCurves {
 

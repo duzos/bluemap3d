@@ -1,0 +1,395 @@
+package dev.duzo.bluemap3d.create;
+
+import com.simibubi.create.content.trains.track.BezierConnection;
+import dev.duzo.bluemap3d.api.BlockVolume;
+import dev.duzo.bluemap3d.api.ModelAttachment;
+import dev.duzo.bluemap3d.api.SceneObject;
+import dev.duzo.bluemap3d.api.SceneObjectProvider;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix3f;
+import org.joml.Matrix4f;
+import org.joml.Quaternionf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * Reports curved Create track as {@link SceneObject}s, one per grid cell.
+ *
+ * <h2>Why this exists</h2>
+ * Create maps a curve to {@code minecraft:block/air} and draws the bezier itself at render
+ * time from {@link BezierConnection}. There is no block for BlueMap to read, so without this
+ * provider a curve is a gap in the rendered network even though the straight track either
+ * side of it is fine.
+ *
+ * <h2>Merged by grid cell, not one object per curve</h2>
+ * Every published object costs its own mesh file, atlas image, HTTP fetch and draw call.
+ * Track clusters, so publishing one object per curve would multiply that cost for no benefit;
+ * see {@link CreateConfig#CURVE_GRID_SIZE}. A curve is assigned to a cell by its first point
+ * - curves are almost always far smaller than a cell, so this only rarely disagrees with
+ * where the curve's geometry actually sits, and never badly.
+ *
+ * <h2>Where the segment math comes from</h2>
+ * {@link BezierConnection#getBakedSegments()} bakes {@code PoseStack.Pose}s using
+ * {@code flywheel} and {@code com.mojang.blaze3d}, both client-only - a dedicated server
+ * cannot load either class, so that path is off limits entirely, not just discouraged.
+ * Iterating the connection is safe, though: {@link BezierConnection#iterator()} hands out a
+ * {@link BezierConnection.Segment} per step with a full orientation frame already computed
+ * server-side - {@code position}, {@code derivative} (unit tangent), {@code faceNormal} (the
+ * track's up vector, banking included) and {@code normal} (already
+ * {@code cross(faceNormal, derivative)}, i.e. the sideways rail-gauge direction). That frame
+ * is everything this file uses; nothing here reads Create's client renderer, it was only
+ * decompiled for reference to find the model offsets baked into the tie and rail meshes
+ * (see the constants below) and the 0.965 half-gauge, which is Create's own and not a guess.
+ *
+ * <p>Two model pieces repeat along the curve: a tie (sleeper) at every step, and a pair of
+ * rail segments - one left, one right - bridging each step to the next. The tie and rail
+ * models are authored with their own length axis on local Z, height on Y and width on X,
+ * which lines up with {@code derivative}, {@code faceNormal} and {@code normal} respectively,
+ * so each piece's transform is just: translate to its anchor point, rotate so those three
+ * local axes match that frame's three world vectors, then apply the small baked-in offset
+ * the model itself needs (see {@link #TIE_OFFSET_X} and {@link #RAIL_OFFSET_X}) and, for
+ * rails only, scale the model's native 0.5 block length to the step's actual length.
+ *
+ * <p>Rail orientation is taken from the frame at the step the rail piece originates from,
+ * not from a delta between the two points the way Create's own renderer does it. That is a
+ * simplification, not a correction of anything wrong with Create's approach - it just needs
+ * far less trigonometry to reproduce and, at Create's own segment density
+ * (round(length * 2) steps), the difference is not visible.
+ *
+ * <h2>Known limitations, accepted rather than fixed here</h2>
+ * <ul>
+ *   <li><b>Always andesite.</b> {@code obj_track.json} hardcodes
+ *       {@code create:block/standard_track} as the texture for every track model. The real
+ *       material lives on {@link com.simibubi.create.content.trains.track.TrackMaterial},
+ *       whose fields are Registrate-typed and out of scope for this pass.</li>
+ *   <li><b>Static.</b> These cells never move, so republishing their transform every publish
+ *       interval - which core does for every object regardless - is pure overhead. Keeping
+ *       the cell count low via {@link CreateConfig#CURVE_GRID_SIZE} and
+ *       {@link CreateConfig#MAX_CURVE_OBJECTS} is the mitigation available at this layer;
+ *       not resending an unchanging transform is a core concern.</li>
+ * </ul>
+ */
+public final class CurvedTrackProvider implements SceneObjectProvider {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("BlueMap3D/Create");
+
+    /** FNV-1a's 64 bit offset basis. Same mixer and basis {@link ContraptionProvider} uses. */
+    private static final long FNV_OFFSET = 0xcbf29ce484222325L;
+
+    private static final ResourceLocation TIE_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/tie");
+    private static final ResourceLocation RAIL_LEFT_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/segment_left");
+    private static final ResourceLocation RAIL_RIGHT_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/segment_right");
+
+    /**
+     * Half the rail gauge, in blocks. Create's own constant - it is exactly what
+     * {@code BezierConnection.SegmentAngles} scales {@code segment.normal} by to place each
+     * rail relative to the centreline, decompiled from the client jar rather than guessed.
+     */
+    private static final float GAUGE_HALF_WIDTH = 0.965f;
+
+    /** {@code segment_left.obj} / {@code segment_right.obj}'s own length along local Z. */
+    private static final float RAIL_NATIVE_LENGTH = 0.5f;
+
+    /**
+     * A small deliberate over-scale on every rail piece's length, so consecutive pieces
+     * overlap a hair rather than leaving a seam on curvature that shortens the chord versus
+     * the arc. Create's own renderer does the same thing with its own 2.1/2.2 constants
+     * (which are {@code RAIL_NATIVE_LENGTH}'s reciprocal times almost exactly this).
+     */
+    private static final float RAIL_OVERLAP = 1.05f;
+
+    /**
+     * {@code tie.obj} is authored off-centre - its local X span is roughly -0.87..1.87, not
+     * symmetric about 0 - and this is the correction, decompiled from the same offset
+     * Create's own tie placement applies after rotating. Y also carries a small correction
+     * for the model's own baked vertical offset; Z needs none.
+     */
+    private static final float TIE_OFFSET_X = -0.5f;
+    private static final float TIE_OFFSET_Y = -0.12890625f;
+    private static final float TIE_OFFSET_Z = 0f;
+
+    /** The equivalent small baked-in correction for the rail models. */
+    private static final float RAIL_OFFSET_X = 0f;
+    private static final float RAIL_OFFSET_Y = -0.12890625f;
+    private static final float RAIL_OFFSET_Z = -0.03125f;
+
+    /**
+     * How far a tie or rail piece's mesh reaches beyond the anchor point used to place it,
+     * padded generously since this only feeds a bounding box and is never used for culling
+     * (attachments are drawn unconditionally - see {@link BlockVolume#attachments}).
+     */
+    private static final double BOUNDS_PAD = 3.0;
+
+    /** Logged once, the same pattern {@link ContraptionProvider} uses for its own limits. */
+    private final AtomicBoolean cellCapLogged = new AtomicBoolean(false);
+
+    @Override
+    public String id() {
+        return "create_curved_track";
+    }
+
+    @Override
+    public Collection<? extends SceneObject> objects(ServerLevel level) {
+        if (!CreateConfig.CURVED_TRACK.get()) {
+            return List.of();
+        }
+        List<BezierConnection> curves = TrackCurves.find(level);
+        if (curves.isEmpty()) {
+            return List.of();
+        }
+
+        int gridSize = CreateConfig.CURVE_GRID_SIZE.get();
+        Map<Long, List<BezierConnection>> cells = new LinkedHashMap<>();
+        for (BezierConnection curve : curves) {
+            long key = cellKeyOf(curve, gridSize);
+            cells.computeIfAbsent(key, k -> new ArrayList<>()).add(curve);
+        }
+
+        int maxObjects = CreateConfig.MAX_CURVE_OBJECTS.get();
+        if (cells.size() > maxObjects && cellCapLogged.compareAndSet(false, true)) {
+            LOGGER.warn("{} curve grid cells in {}, over the {} object cap; the rest are not "
+                            + "drawn. Raise bluemap3d_create.maxCurveObjects if this is expected.",
+                    cells.size(), level.dimension().location(), maxObjects);
+        }
+
+        ResourceKey<Level> dimension = level.dimension();
+        ResourceLocation dimId = dimension.location();
+        List<SceneObject> out = new ArrayList<>(Math.min(cells.size(), maxObjects));
+        for (Map.Entry<Long, List<BezierConnection>> entry : cells.entrySet()) {
+            if (out.size() >= maxObjects) {
+                break;
+            }
+            int cellX = (int) (entry.getKey() >> 32);
+            int cellZ = (int) (long) entry.getKey();
+            SceneObject object = toSceneObject(dimension, dimId, gridSize, cellX, cellZ, entry.getValue());
+            if (object != null) {
+                out.add(object);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Which grid cell a curve belongs to, keyed by its first point.
+     *
+     * <p>{@code bePositions} - the connection's two endpoints - would be the more obvious
+     * thing to key on, but its type is {@code net.createmod.catnip.data.Couple}, which lives
+     * in Create's own {@code ponder} jar-in-jar and is not on this addon's compile
+     * classpath. A curve's own first segment costs nothing extra to reach and settles the
+     * same question just as well: curves are almost always far smaller than a cell.
+     */
+    private static long cellKeyOf(BezierConnection curve, int gridSize) {
+        Vec3 first = firstPointOf(curve);
+        int cellX = Math.floorDiv((int) Math.floor(first.x), gridSize);
+        int cellZ = Math.floorDiv((int) Math.floor(first.z), gridSize);
+        return (((long) cellX) << 32) | (cellZ & 0xffffffffL);
+    }
+
+    /** A curve's first point, for keying and hash-seeding. Every curve has at least one. */
+    private static Vec3 firstPointOf(BezierConnection curve) {
+        return curve.iterator().next().position;
+    }
+
+    /**
+     * Builds one cell's object, or {@code null} if somehow nothing was drawable - it never
+     * is in practice, since a cell only exists because at least one curve was assigned to it
+     * and every curve draws at least one tie.
+     */
+    private SceneObject toSceneObject(ResourceKey<Level> dimension, ResourceLocation dimId,
+                                      int gridSize, int cellX, int cellZ, List<BezierConnection> curves) {
+        Vec3 cellOrigin = new Vec3(cellX * (double) gridSize, 0, cellZ * (double) gridSize);
+        List<ModelAttachment> attachments = new ArrayList<>();
+        Bounds bounds = new Bounds();
+        long version = FNV_OFFSET;
+
+        for (BezierConnection curve : curves) {
+            addCurve(curve, cellOrigin, attachments, bounds);
+            // Seeded with a position first, same reasoning as ContraptionProvider's own
+            // per-block seeding: two curves of the same shape and length - a mirrored pair
+            // of standard bends is the obvious case - write identical nbt, and an
+            // unseeded commutative fold would let one curve's hash cancel the other's.
+            CompoundTag nbt = curve.write(BlockPos.ZERO);
+            long seed = BlockPos.containing(firstPointOf(curve)).asLong();
+            version ^= mix(mix(FNV_OFFSET, seed), nbt.hashCode());
+        }
+        if (attachments.isEmpty()) {
+            return null;
+        }
+        version = mix(version, curves.size());
+
+        BlockPos min = new BlockPos(
+                (int) Math.floor(bounds.minX), (int) Math.floor(bounds.minY), (int) Math.floor(bounds.minZ));
+        BlockPos max = new BlockPos(
+                (int) Math.ceil(bounds.maxX), (int) Math.ceil(bounds.maxY), (int) Math.ceil(bounds.maxZ));
+        BlockVolume volume = BlockVolume.attachments(min, max, Vec3.ZERO, attachments);
+
+        // The dimension goes in the id for the same reason ContraptionProvider puts it in
+        // its own: core keys tracked objects on provider and id together with no regard to
+        // level, so two dimensions sharing a cell coordinate - (0,0) exists in every
+        // dimension - would otherwise collide. "_" throughout, never "/": WebRootPublisher
+        // maps "/" to "_" when it turns an id into a filename, so mixing the two separators
+        // would make two different cells collide on disk.
+        String objectId = dimId.getNamespace() + "_" + dimId.getPath().replace('/', '_')
+                + "_" + cellX + "_" + cellZ;
+        long finalVersion = version;
+
+        return new SceneObject() {
+            @Override
+            public String id() {
+                return objectId;
+            }
+
+            @Override
+            public BlockVolume geometry() {
+                return volume;
+            }
+
+            @Override
+            public long geometryVersion() {
+                return finalVersion;
+            }
+
+            @Override
+            public Vec3 position() {
+                return cellOrigin;
+            }
+
+            @Override
+            public Quaternionf rotation() {
+                return new Quaternionf();
+            }
+
+            @Override
+            public ResourceKey<Level> dimension() {
+                return dimension;
+            }
+        };
+    }
+
+    /**
+     * Walks one curve's steps, adding a tie at every step and a pair of rail pieces bridging
+     * each step to the next.
+     *
+     * <p>{@link BezierConnection.Segment} is mutated and handed back the same instance on
+     * every call to {@code next()} - a field read into a local variable within one loop body
+     * is safe, but holding a {@code Segment} across iterations is not, so every field this
+     * needs is copied out (or derived) before moving on.
+     */
+    private static void addCurve(BezierConnection curve, Vec3 cellOrigin,
+                                 List<ModelAttachment> attachments, Bounds bounds) {
+        Vec3 prevPos = null;
+        Vec3 prevRight = null;
+        Vec3 prevUp = null;
+        Vec3 prevFwd = null;
+
+        for (BezierConnection.Segment segment : curve) {
+            Vec3 pos = segment.position;
+            Vec3 fwd = segment.derivative.normalize();
+            // Already cross(faceNormal, derivative) and already unit length - see the class
+            // header - but re-derived rather than trusted outright, since faceNormal is
+            // slerped between the two endpoints and is not guaranteed exactly perpendicular
+            // to derivative once banking differs at the two ends.
+            Vec3 right = segment.normal.normalize();
+            Vec3 up = fwd.cross(right).normalize();
+
+            Matrix4f tie = frameMatrix(pos, cellOrigin, right, up, fwd)
+                    .translate(TIE_OFFSET_X, TIE_OFFSET_Y, TIE_OFFSET_Z);
+            attachments.add(new ModelAttachment(BlockPos.ZERO, TIE_MODEL, Map.of(), tie));
+            expandBounds(bounds, pos, cellOrigin);
+
+            if (prevPos != null) {
+                Vec3 delta = pos.subtract(prevPos);
+                float stepLength = (float) delta.length();
+                if (stepLength > 1.0e-5f) {
+                    float scaleZ = stepLength / RAIL_NATIVE_LENGTH * RAIL_OVERLAP;
+                    Vec3 railLeft = prevPos.add(prevRight.scale(GAUGE_HALF_WIDTH));
+                    Vec3 railRight = prevPos.subtract(prevRight.scale(GAUGE_HALF_WIDTH));
+                    addRail(RAIL_LEFT_MODEL, railLeft, cellOrigin, prevRight, prevUp, prevFwd,
+                            scaleZ, attachments, bounds);
+                    addRail(RAIL_RIGHT_MODEL, railRight, cellOrigin, prevRight, prevUp, prevFwd,
+                            scaleZ, attachments, bounds);
+                }
+            }
+            prevPos = pos;
+            prevRight = right;
+            prevUp = up;
+            prevFwd = fwd;
+        }
+    }
+
+    /** One rail piece, anchored at {@code anchor} and stretched to cover one step. */
+    private static void addRail(ResourceLocation model, Vec3 anchor, Vec3 cellOrigin,
+                                Vec3 right, Vec3 up, Vec3 fwd, float scaleZ,
+                                List<ModelAttachment> attachments, Bounds bounds) {
+        Matrix4f transform = frameMatrix(anchor, cellOrigin, right, up, fwd)
+                .translate(RAIL_OFFSET_X, RAIL_OFFSET_Y, RAIL_OFFSET_Z)
+                .scale(1f, 1f, scaleZ);
+        attachments.add(new ModelAttachment(BlockPos.ZERO, model, Map.of(), transform));
+        expandBounds(bounds, anchor, cellOrigin);
+    }
+
+    /**
+     * Translate to {@code worldPoint} (in the cell's own local coordinates) and rotate so
+     * the model's local X, Y and Z axes land on {@code right}, {@code up} and {@code fwd}.
+     *
+     * <p>JOML's nine-float {@link Matrix3f} constructor reads column by column - same fact
+     * {@link ContraptionProvider#rotationOf} relies on - so hands the three basis vectors in
+     * as its three columns rather than building a quaternion from angles.
+     */
+    private static Matrix4f frameMatrix(Vec3 worldPoint, Vec3 cellOrigin, Vec3 right, Vec3 up, Vec3 fwd) {
+        float lx = (float) (worldPoint.x - cellOrigin.x);
+        float ly = (float) (worldPoint.y - cellOrigin.y);
+        float lz = (float) (worldPoint.z - cellOrigin.z);
+        Matrix3f rot = new Matrix3f(
+                (float) right.x, (float) right.y, (float) right.z,
+                (float) up.x, (float) up.y, (float) up.z,
+                (float) fwd.x, (float) fwd.y, (float) fwd.z);
+        return new Matrix4f()
+                .translate(lx, ly, lz)
+                .rotate(new Quaternionf().setFromNormalized(rot));
+    }
+
+    private static void expandBounds(Bounds bounds, Vec3 worldPoint, Vec3 cellOrigin) {
+        double lx = worldPoint.x - cellOrigin.x;
+        double ly = worldPoint.y - cellOrigin.y;
+        double lz = worldPoint.z - cellOrigin.z;
+        bounds.expand(lx - BOUNDS_PAD, ly - BOUNDS_PAD, lz - BOUNDS_PAD);
+        bounds.expand(lx + BOUNDS_PAD, ly + BOUNDS_PAD, lz + BOUNDS_PAD);
+    }
+
+    /** FNV-1a's mixing step. */
+    private static long mix(long hash, long value) {
+        return (hash ^ value) * 0x100000001b3L;
+    }
+
+    /** A running bounding box in the cell's local coordinates. */
+    private static final class Bounds {
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+
+        void expand(double x, double y, double z) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
+        }
+    }
+}
