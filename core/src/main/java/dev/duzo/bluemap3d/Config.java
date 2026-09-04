@@ -30,7 +30,7 @@ public final class Config {
     /** Best-effort attempt to hide live-drawn blocks from BlueMap's tiles. See the comment. */
     public static final ModConfigSpec.BooleanValue HIDE_LIVE_BLOCKS;
 
-    /** Experimental: draw unmodelled blocks from their voxel shape rather than as a cube. */
+    /** Draw unmodelled blocks from their voxel shape rather than as a coloured cube. */
     public static final ModConfigSpec.BooleanValue SHAPE_FALLBACK;
 
     /**
@@ -132,9 +132,8 @@ public final class Config {
                         "",
                         "It is an approximation and says so - the blocks it draws are still",
                         "named in the 'no model found' line at the end of a bake, because a",
-                        "real model supplied through 'sources' is still better. Off by",
-                        "default while it is being evaluated.")
-                .define("shapeFallback", false);
+                        "real model supplied through 'sources' is still better.")
+                .define("shapeFallback", true);
 
         HIDE_LIVE_BLOCKS = builder
                 .comment("Hide blocks that a provider draws live from BlueMap's own terrain",

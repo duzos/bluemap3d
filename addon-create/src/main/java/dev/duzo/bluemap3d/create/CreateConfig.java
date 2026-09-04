@@ -31,7 +31,7 @@ public final class CreateConfig {
                         "Off by default. Nobody has measured what this costs on a server with a",
                         "large rail network yet, so turning it on is a deliberate choice rather",
                         "than something that just happens.")
-                .define("curvedTrack", false);
+                .define("curvedTrack", true);
 
         CURVE_GRID_SIZE = builder
                 .comment("Curves are merged into square grid cells this many blocks on a side",
