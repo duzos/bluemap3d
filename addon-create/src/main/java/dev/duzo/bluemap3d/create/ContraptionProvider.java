@@ -116,10 +116,20 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // never by the block model - the blockstate's only model is the plain rail-top piece,
     // shared by every bogey regardless of size. So a bogey meshed from its block state
     // alone comes out with a track on top of thin air. Attachments fill in what the
-    // renderer would otherwise draw: one static frame, and one spinning wheel pair per
-    // axle.
+    // renderer would otherwise draw.
     //
-    // Both models are real geometry in Create's jar and read the normal way; nothing
+    // A large bogey is not a scaled-up small one - StandardBogeyRenderer's two nested
+    // renderers, $Small and $Large, draw entirely different part sets. Decompiled by
+    // javap (see the notes below), $Small draws BOGEY_FRAME plus one SMALL_BOGEY_WHEELS
+    // pair per axle; $Large never draws BOGEY_FRAME at all; it draws BOGEY_DRIVE (the
+    // gearbox housing, standing where the frame would), BOGEY_DRIVE_BELT, BOGEY_PISTON,
+    // one LARGE_BOGEY_WHEELS pair, and BOGEY_PIN. Both also draw a couple of plain
+    // create:shaft blocks as visible connecting rod stubs; those are vanilla block
+    // models rather than named partials and are left undrawn here as an accepted gap,
+    // the same way this whole feature already accepts that a block-state mesh alone
+    // cannot show them.
+    //
+    // Every model here is real geometry in Create's jar and read the normal way; nothing
     // Create-specific is on the classpath for them. Detecting a bogey block and reading
     // its axis needs no Create class either - the axis property Create's own
     // AbstractBogeyBlock exposes is just vanilla BlockStateProperties.HORIZONTAL_AXIS.
@@ -130,36 +140,79 @@ public final class ContraptionProvider implements SceneObjectProvider {
             ResourceLocation.fromNamespaceAndPath("create", "large_bogey");
     private static final ResourceLocation BOGEY_FRAME_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_frame");
-    private static final ResourceLocation BOGEY_WHEEL_MODEL =
+    private static final ResourceLocation SMALL_BOGEY_WHEEL_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_wheel");
+    private static final ResourceLocation LARGE_BOGEY_WHEEL_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_wheel");
+    private static final ResourceLocation BOGEY_DRIVE_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive");
+    private static final ResourceLocation BOGEY_DRIVE_BELT_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_belt");
+    private static final ResourceLocation BOGEY_PISTON_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_piston");
+    private static final ResourceLocation BOGEY_PIN_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_wheel_pin");
 
-    // Where the wheels sit relative to the bogey block, and how fast they should turn.
-    // Create's own placement lives in StandardBogeyRenderer, a client class a dedicated
-    // server cannot load - so these are not read at runtime, but they are not a guess
-    // either. They were decompiled from that renderer's bytecode, which is the exact
-    // arithmetic the client itself uses to place bogey_wheel/bogey_frame relative to the
-    // bogey block's own position:
+    // Where the parts sit relative to the bogey block, and how fast the wheels should
+    // turn. Create's own placement lives in StandardBogeyRenderer, a client class a
+    // dedicated server cannot load - so these are not read at runtime, but they are not a
+    // guess either. They were decompiled with javap -c -p from that renderer's three
+    // classes (the shared base, $Small and $Large), which is the exact arithmetic the
+    // client itself uses to place every part relative to the bogey block's own position,
+    // read at the render() call's angle parameter equal to 0 degrees (rest pose):
     //
-    //   Small.render(): translate(0, 0.75, +-1) then rotateX(angle), once per axle
-    //   Large.render(): translate(0, 1.0, 0) then rotateX(angle), one axle only
+    //   Small.render():  BOGEY_FRAME:          no translate (scale only)
+    //                     SMALL_BOGEY_WHEELS:   translate(0, 0.75, +-1) then rotateX(angle),
+    //                                           once per axle
+    //   Large.render():  BOGEY_DRIVE:           no translate (scale only)
+    //                     BOGEY_DRIVE_BELT:     no translate (scale + UV scroll only - the
+    //                                           belt's motion is a texture animation, not
+    //                                           a vertex one, so it is geometrically static)
+    //                     BOGEY_PISTON:         translate(0, 0, 0.25 * sin(angle)) - a
+    //                                           reciprocating slide, not a rotation
+    //                     LARGE_BOGEY_WHEELS:   translate(0, 1.0, 0) then rotateX(angle),
+    //                                           one axle only
+    //                     BOGEY_PIN:            translate(0, 1, 0), rotateX(angle),
+    //                                           translate(0, 0.25, 0), rotateX(-angle) - an
+    //                                           eccentric crank pin that orbits the wheel
+    //                                           centre without spinning itself
     //
-    // Both are in block units, in the model's own un-rotated (axis=z) frame - the same
-    // frame bogey_frame.obj and bogey_wheel.obj are authored in. If Create ever moves its
-    // wheels, this is the place that has to follow; there is no live value to re-read.
+    // All of these are in block units, in the model's own un-rotated (axis=z) frame - the
+    // same frame every one of these obj models is authored in. If Create ever moves a
+    // part, this is the place that has to follow; there is no live value to re-read.
+    //
+    // Only LARGE_BOGEY_WHEELS is a rotation (rotateX(angle) alone), so it is the only new
+    // large part that becomes a Spin below. BOGEY_PISTON's reciprocation and BOGEY_PIN's
+    // orbit-without-spin are both real motion but neither is a single rotation about a
+    // fixed axis, which is all ModelAttachment.Spin can express - reproducing them needs a
+    // second motion primitive core does not have yet. Rather than fake it with a spin that
+    // would visibly slip, both are attached static, at their angle-0 rest position, exactly
+    // as this file already accepts BOGEY_DRIVE_BELT's texture scroll going undrawn.
+    //
     // Create's own figures are measured from a different origin than bogeyTransform's
     // block centre, so taken as written they hang the whole bogey in mid air above the
-    // block. BOGEY_DROP is the correction, and it is applied to the frame and to every
-    // axle together: they are one physical object, and giving them independent offsets
-    // once already let the wheels move down while the frame stayed behind.
-    // BOGEY_DROP moves the whole assembly, frame and axles together. FRAME_HEIGHT is the
-    // frame's own offset within it, which is a real relationship rather than a correction:
-    // the frame body sits above the axle line it rides on, and zeroing it leaves the frame
-    // floating half a block clear of its own wheels.
+    // block. BOGEY_DROP is the correction, and it is applied to every part together: they
+    // are one physical object, and giving them independent offsets once already let the
+    // wheels move down while the frame stayed behind. BOGEY_DROP was tuned so a *_HEIGHT
+    // constant of 0 reproduces SMALL_BOGEY_WHEELS' own raw translate exactly, which makes
+    // every other *_HEIGHT below the raw translate above minus 0.75 - except FRAME_HEIGHT,
+    // which needed an extra empirical nudge beyond that arithmetic, because bogey_frame.obj
+    // carries its own baked-in vertical offset that no render() transform reveals. The four
+    // new large-only constants are first-pass estimates from the arithmetic alone, without
+    // that same visual nudge, because their meshes were not test-rendered for this change;
+    // see the tuning table in the task report if one of them looks off by a fixed amount.
     private static final float BOGEY_DROP = -0.75f;
     private static final float FRAME_HEIGHT = -0.5f;
     private static final float SMALL_AXLE_HEIGHT = 0f;
     private static final float SMALL_AXLE_SPACING = 1.0f;
-    private static final float LARGE_AXLE_HEIGHT = 0f;
+    // 1.0 (Large's raw wheel translate) minus 0.75 (Small's, folded into BOGEY_DROP above).
+    private static final float LARGE_AXLE_HEIGHT = 0.25f;
+    // BOGEY_DRIVE, BOGEY_DRIVE_BELT and BOGEY_PISTON's rest position all read raw
+    // translate 0 - 0.75, the same arithmetic as LARGE_AXLE_HEIGHT above, and they share
+    // one constant because they also share that raw origin.
+    private static final float BOGEY_DRIVE_HEIGHT = -0.75f;
+    // BOGEY_PIN's angle-0 rest translate is 1.25 (1 + 0.25) - 0.75.
+    private static final float BOGEY_PIN_HEIGHT = 0.5f;
 
     // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
     // itself (a normal, both-sides Block class, not the renderer) exposes
@@ -299,7 +352,6 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // keep whatever geometry it was first baked with.
             version ^= mix(mix(FNV_OFFSET, pos.asLong()), bogeyStyleOf(entry.getValue()).hashCode());
             addBogeyAttachments(pos, entry.getValue(), attachments);
-            addBogeyAttachments(pos, entry.getValue(), attachments);
         }
         version = mix(version, source.size());
 
@@ -417,13 +469,6 @@ public final class ContraptionProvider implements SceneObjectProvider {
     }
 
     /**
-     * Appends a bogey block's frame and per-axle wheels to {@code out}, or does nothing if
-     * {@code state} is not a small or large bogey.
-     *
-     * <p>A small bogey gets two spinning attachments, one per axle; a large bogey gets one -
-     * matching how many times Create's own renderer places {@code bogey_wheel} for each.
-     */
-    /**
      * The bogey style at this block, or Create's standard style when it says nothing.
      *
      * <p>Create keeps a bogey's style in its block entity rather than its block state, as
@@ -441,6 +486,16 @@ public final class ContraptionProvider implements SceneObjectProvider {
         return style.isEmpty() ? STANDARD_BOGEY_STYLE : style;
     }
 
+    /**
+     * Appends a bogey block's parts to {@code out}, or does nothing if {@code state} is not
+     * a small or large bogey.
+     *
+     * <p>A small bogey gets its frame plus two spinning wheel attachments, one per axle. A
+     * large bogey never gets a frame - Create's own {@code $Large} renderer does not draw
+     * one either - and instead gets the gearbox housing, belt and piston static, one
+     * spinning wheel pair, and the crank pin static. See the constants block above for
+     * where each of those numbers came from.
+     */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
                                             List<ModelAttachment> out) {
         BlockState state = info.state();
@@ -463,17 +518,33 @@ public final class ContraptionProvider implements SceneObjectProvider {
             return;
         }
 
-        out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(),
-                bogeyTransform(axis, BOGEY_DROP + FRAME_HEIGHT, 0f)));
-
-        float height = small ? SMALL_AXLE_HEIGHT : LARGE_AXLE_HEIGHT;
-        float radius = small ? WHEEL_RADIUS_SMALL : WHEEL_RADIUS_LARGE;
-        float[] axleOffsets = small ? new float[]{SMALL_AXLE_SPACING, -SMALL_AXLE_SPACING} : new float[]{0f};
-        for (float axleOffset : axleOffsets) {
-            Matrix4f transform = bogeyTransform(axis, BOGEY_DROP + height, axleOffset);
-            ModelAttachment.Spin spin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, radius);
-            out.add(new ModelAttachment(pos, BOGEY_WHEEL_MODEL, Map.of(), transform, spin));
+        if (small) {
+            out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(),
+                    bogeyTransform(axis, BOGEY_DROP + FRAME_HEIGHT, 0f)));
+            for (float axleOffset : new float[]{SMALL_AXLE_SPACING, -SMALL_AXLE_SPACING}) {
+                Matrix4f transform = bogeyTransform(axis, BOGEY_DROP + SMALL_AXLE_HEIGHT, axleOffset);
+                ModelAttachment.Spin spin =
+                        new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, WHEEL_RADIUS_SMALL);
+                out.add(new ModelAttachment(pos, SMALL_BOGEY_WHEEL_MODEL, Map.of(), transform, spin));
+            }
+            return;
         }
+
+        // Large: no frame. The gearbox housing, belt and piston all sit static at the same
+        // raw origin (see BOGEY_DRIVE_HEIGHT above), the wheel pair spins, and the crank
+        // pin is static at its rest pose - see the constants block for why the piston and
+        // pin cannot be a Spin.
+        Matrix4f driveTransform = bogeyTransform(axis, BOGEY_DROP + BOGEY_DRIVE_HEIGHT, 0f);
+        out.add(new ModelAttachment(pos, BOGEY_DRIVE_MODEL, Map.of(), driveTransform));
+        out.add(new ModelAttachment(pos, BOGEY_DRIVE_BELT_MODEL, Map.of(), driveTransform));
+        out.add(new ModelAttachment(pos, BOGEY_PISTON_MODEL, Map.of(), driveTransform));
+
+        Matrix4f wheelTransform = bogeyTransform(axis, BOGEY_DROP + LARGE_AXLE_HEIGHT, 0f);
+        ModelAttachment.Spin wheelSpin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, WHEEL_RADIUS_LARGE);
+        out.add(new ModelAttachment(pos, LARGE_BOGEY_WHEEL_MODEL, Map.of(), wheelTransform, wheelSpin));
+
+        out.add(new ModelAttachment(pos, BOGEY_PIN_MODEL, Map.of(),
+                bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, 0f)));
     }
 
     /**
