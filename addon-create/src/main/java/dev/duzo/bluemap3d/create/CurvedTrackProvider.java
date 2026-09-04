@@ -37,9 +37,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <h2>Merged by grid cell, not one object per curve</h2>
  * Every published object costs its own mesh file, atlas image, HTTP fetch and draw call.
  * Track clusters, so publishing one object per curve would multiply that cost for no benefit;
- * see {@link CreateConfig#CURVE_GRID_SIZE}. A curve is assigned to a cell by its first point
- * - curves are almost always far smaller than a cell, so this only rarely disagrees with
- * where the curve's geometry actually sits, and never badly.
+ * see {@link CreateConfig#CURVE_GRID_SIZE}. A curve is assigned to a cell by its first block
+ * entity ({@link BezierConnection#bePositions}'s first element) - curves are almost always
+ * far smaller than a cell, so this only rarely disagrees with where the curve's geometry
+ * actually sits, and never badly.
  *
  * <h2>Where the segment math comes from</h2>
  * {@link BezierConnection#getBakedSegments()} bakes {@code PoseStack.Pose}s using
@@ -53,6 +54,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * is everything this file uses; nothing here reads Create's client renderer, it was only
  * decompiled for reference to find the model offsets baked into the tie and rail meshes
  * (see the constants below) and the 0.965 half-gauge, which is Create's own and not a guess.
+ *
+ * <p><b>{@code segment.position} is not a world coordinate.</b> {@code javap -c} on
+ * {@code BezierConnection$Bezierator} shows every control point it builds is offset by
+ * {@code -bePositions.getFirst()} before the bezier math runs, because Create's own renderer
+ * translates its pose stack to that block entity before drawing - the segments it hands out
+ * are relative to that block, not to the world. {@link #addCurve} adds
+ * {@code bePositions.getFirst()} back for exactly this reason. Do not reach for
+ * {@link BezierConnection#getKey()} as a shortcut for that offset: {@code javap} shows it
+ * returns {@code bePositions.getSecond()} instead, the far end of the connection, because
+ * that is what the owning block entity uses to key its own connection map.
  *
  * <p>Two model pieces repeat along the curve: a tie (sleeper) at every step, and a pair of
  * rail segments - one left, one right - bridging each step to the next. The tie and rail
@@ -186,24 +197,20 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
     }
 
     /**
-     * Which grid cell a curve belongs to, keyed by its first point.
+     * Which grid cell a curve belongs to, keyed by the connection's first block entity.
      *
-     * <p>{@code bePositions} - the connection's two endpoints - would be the more obvious
-     * thing to key on, but its type is {@code net.createmod.catnip.data.Couple}, which lives
-     * in Create's own {@code ponder} jar-in-jar and is not on this addon's compile
-     * classpath. A curve's own first segment costs nothing extra to reach and settles the
-     * same question just as well: curves are almost always far smaller than a cell.
+     * <p>{@code bePositions.getFirst()} is the real endpoint to key on, now that
+     * {@code Couple} is reachable (see {@code build.gradle}'s ponder dependency). Do not
+     * key on {@link BezierConnection#getKey()} instead - it looks like the obvious
+     * accessor but {@code javap} shows it returns {@code bePositions.getSecond()}, the
+     * far end, because that is what the owning block entity uses to key its own
+     * connection map. Using it here would file a curve under its wrong end.
      */
     private static long cellKeyOf(BezierConnection curve, int gridSize) {
-        Vec3 first = firstPointOf(curve);
-        int cellX = Math.floorDiv((int) Math.floor(first.x), gridSize);
-        int cellZ = Math.floorDiv((int) Math.floor(first.z), gridSize);
+        BlockPos first = curve.bePositions.getFirst();
+        int cellX = Math.floorDiv(first.getX(), gridSize);
+        int cellZ = Math.floorDiv(first.getZ(), gridSize);
         return (((long) cellX) << 32) | (cellZ & 0xffffffffL);
-    }
-
-    /** A curve's first point, for keying and hash-seeding. Every curve has at least one. */
-    private static Vec3 firstPointOf(BezierConnection curve) {
-        return curve.iterator().next().position;
     }
 
     /**
@@ -219,13 +226,17 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         long version = FNV_OFFSET;
 
         for (BezierConnection curve : curves) {
-            addCurve(curve, cellOrigin, attachments, bounds);
+            // Segment.position, below, comes out relative to this block entity, not
+            // world-absolute - see the class header. Adding it back is what turns the
+            // connection's own coordinates into real world coordinates.
+            Vec3 curveOrigin = Vec3.atLowerCornerOf(curve.bePositions.getFirst());
+            addCurve(curve, curveOrigin, cellOrigin, attachments, bounds);
             // Seeded with a position first, same reasoning as ContraptionProvider's own
             // per-block seeding: two curves of the same shape and length - a mirrored pair
             // of standard bends is the obvious case - write identical nbt, and an
             // unseeded commutative fold would let one curve's hash cancel the other's.
             CompoundTag nbt = curve.write(BlockPos.ZERO);
-            long seed = BlockPos.containing(firstPointOf(curve)).asLong();
+            long seed = curve.bePositions.getFirst().asLong();
             version ^= mix(mix(FNV_OFFSET, seed), nbt.hashCode());
         }
         if (attachments.isEmpty()) {
@@ -291,7 +302,7 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * is safe, but holding a {@code Segment} across iterations is not, so every field this
      * needs is copied out (or derived) before moving on.
      */
-    private static void addCurve(BezierConnection curve, Vec3 cellOrigin,
+    private static void addCurve(BezierConnection curve, Vec3 curveOrigin, Vec3 cellOrigin,
                                  List<ModelAttachment> attachments, Bounds bounds) {
         Vec3 prevPos = null;
         Vec3 prevRight = null;
@@ -299,7 +310,10 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         Vec3 prevFwd = null;
 
         for (BezierConnection.Segment segment : curve) {
-            Vec3 pos = segment.position;
+            // segment.position is relative to curveOrigin (bePositions.getFirst()), not
+            // world-absolute - see the class header - so every use of it below needs
+            // curveOrigin added back in before it means anything as a world position.
+            Vec3 pos = segment.position.add(curveOrigin);
             Vec3 fwd = segment.derivative.normalize();
             // Already cross(faceNormal, derivative) and already unit length - see the class
             // header - but re-derived rather than trusted outright, since faceNormal is
