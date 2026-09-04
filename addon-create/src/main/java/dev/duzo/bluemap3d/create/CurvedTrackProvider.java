@@ -296,10 +296,17 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * Walks every straight edge's two endpoints in one-block steps, keeping the blocks whose
      * shape is one of {@link #OBJ_MODELLED_SHAPES}.
      *
-     * <p>This is the bounded, exact alternative to scanning loaded chunks that
+     * <p>This is the bounded alternative to scanning loaded chunks that
      * {@link SceneObjectProvider}'s javadoc calls for: the railway graph already names the
      * two ends of every straight run, so only the blocks on the line between them are ever
-     * read, never a whole region.
+     * candidates for a read. Each candidate is still only read if its chunk is already
+     * loaded - this runs on the server thread every {@code publishIntervalTicks}, and
+     * {@link ServerLevel#getBlockState} on an unloaded position synchronously loads (and,
+     * if necessary, generates) the chunk and never releases it. Without the guard, a
+     * railway crossing unloaded terrain would force-load a chunk per block of every
+     * straight run, repeatedly, for as long as the world runs. Skipping an unloaded
+     * position loses nothing worth drawing: diagonal track sitting in a chunk nobody has
+     * loaded is not visible on the map either way.
      *
      * <p>Ascending track climbs a block of Y for every block of horizontal travel, so all
      * three axes are interpolated together rather than assuming the endpoints share a Y
@@ -331,6 +338,11 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
                         a.x + (b.x - a.x) * t,
                         a.y + (b.y - a.y) * t,
                         a.z + (b.z - a.z) * t);
+                if (!level.hasChunkAt(pos)) {
+                    // Do not force-load or generate terrain just to check for track. See
+                    // the loaded-chunk guard note in this method's javadoc.
+                    continue;
+                }
                 BlockState state = level.getBlockState(pos);
                 if (!(state.getBlock() instanceof TrackBlock) || !state.hasProperty(TrackBlock.SHAPE)) {
                     continue;
