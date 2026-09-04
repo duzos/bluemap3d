@@ -108,6 +108,7 @@
         THREE = window.BlueMap.Three;
         viewer = window.bluemap.mapViewer;
         _scratch = new THREE.Quaternion();
+        UP = new THREE.Vector3(0, 1, 0);
 
         root = new THREE.Group();
         root.name = "bluemap3d";
@@ -293,10 +294,28 @@
                 pos: row.pos,
                 rot: row.rot
             };
+            /* The segment we've been interpolating through is now entirely behind us -
+             * fold its full travel into each node's odometer before starting the next
+             * one. Guarded on entry.to because the first sighting has no prior segment. */
+            if (entry.to && entry.nodes) {
+                for (var n = 0; n < entry.nodes.length; n++) {
+                    entry.odometers[n] += entry.segmentTravel[n];
+                }
+            }
+
             /* First sighting: no history to interpolate from, so sit still at the
              * first sample rather than sliding in from the origin. */
             entry.from = entry.to || sample;
             entry.to = sample;
+
+            /* Per (entry, node), not per entry: travel is projected onto a rolling
+             * direction derived from that node's axis, and two nodes may have different
+             * axes. */
+            if (entry.nodes) {
+                for (var m = 0; m < entry.nodes.length; m++) {
+                    entry.segmentTravel[m] = nodeSegmentTravel(entry.nodes[m], entry.from, entry.to);
+                }
+            }
         });
 
         Object.keys(objects).forEach(function (id) {
@@ -312,13 +331,23 @@
          * position while the feed keeps arriving, which looks like the mod is broken
          * rather than the tab being asleep. With frames running this is redundant and
          * costs nothing; without them it degrades to a step per interval instead of
-         * stopping dead. */
-        for (var id in objects) {
-            writeTransform(objects[id], 1);
+         * stopping dead.
+         *
+         * Gated on "no frames since the previous poll" rather than frameCount === 0.
+         * frameCount is cumulative and never resets, so a tab that rendered and was then
+         * minimised - exactly what this write exists for - would fail a zero test forever
+         * and its wheels would freeze while the carriage kept stepping. */
+        if (frameCount === frameCountAtLastPoll) {
+            for (var id in objects) {
+                writeTransform(objects[id], 1);
+            }
         }
+        frameCountAtLastPoll = frameCount;
 
         applyVisibility();
     }
+
+    var frameCountAtLastPoll = 0;
 
     function remove(id) {
         var entry = objects[id];
@@ -334,13 +363,50 @@
         if (entry.mesh) {
             root.remove(entry.mesh);
         }
+
+        /* Clamped to the static range, or every spinning part draws twice: once stuck in
+         * its baked pose as part of the parent, and once again turning as its own node. */
+        resource.geometry.setDrawRange(0, resource.staticIndexCount);
+
         var mesh = new THREE.Mesh(resource.geometry, resource.material);
         mesh.frustumCulled = true;
         mesh.matrixAutoUpdate = true;
         if (row.label) {
             mesh.name = row.label;
         }
+
+        var nodeGroups = [];
+        for (var i = 0; i < resource.nodes.length; i++) {
+            var node = resource.nodes[i];
+            var group = new THREE.Group();
+            group.position.copy(node.pivot);
+
+            var nodeMesh = new THREE.Mesh(resource.nodeGeometries[i], resource.material);
+            nodeMesh.position.copy(node.pivot).negate();
+            nodeMesh.frustumCulled = true;
+            nodeMesh.matrixAutoUpdate = true;
+            group.add(nodeMesh);
+
+            mesh.add(group);
+            nodeGroups.push(group);
+        }
+
         entry.mesh = mesh;
+        entry.nodes = resource.nodes;
+        entry.nodeGroups = nodeGroups;
+
+        /* Zeroed rather than carried over. A wheel's absolute phase is unobservable, so
+         * resetting costs nothing visually - unlike position, where this client goes to
+         * some trouble to preserve interpolation state. Carrying them would be actively
+         * wrong when the node count changes, which happens whenever a carriage re-bakes,
+         * and undefined + travel is NaN, which makes that child vanish. */
+        entry.odometers = new Array(resource.nodes.length);
+        entry.segmentTravel = new Array(resource.nodes.length);
+        for (var j = 0; j < resource.nodes.length; j++) {
+            entry.odometers[j] = 0;
+            entry.segmentTravel[j] = 0;
+        }
+
         /* Placed by the next frame; adding it already positioned avoids a one-frame
          * flash at the origin. */
         writeTransform(entry, 1);
@@ -388,9 +454,69 @@
                 _scratch.set(to.rot[0], to.rot[1], to.rot[2], to.rot[3]),
                 alpha
             );
+
+        if (entry.nodeGroups) {
+            for (var i = 0; i < entry.nodeGroups.length; i++) {
+                var angle = entry.odometers[i] + alpha * entry.segmentTravel[i];
+                entry.nodeGroups[i].quaternion.setFromAxisAngle(entry.nodes[i].axis, angle);
+            }
+        }
     }
 
     var _scratch = null;
+    var UP = null;
+
+    /**
+     * Travel of one node along its own rolling direction over one segment, projected
+     * from the object's displacement in that segment and expressed in the node's local
+     * (object-space) frame.
+     */
+    function rollTravel(axis, delta, fromRot) {
+        var roll = axis.clone().cross(UP);
+        if (roll.lengthSq() < 0.01) {
+            /* axle within ~6 degrees of vertical: no meaningful rolling direction, and
+             * the normalised cross product would be dominated by float error and give a
+             * plausible but random one. */
+            return 0;
+        }
+        roll.normalize();
+        var local = delta.clone().applyQuaternion(fromRot.clone().invert());
+        return local.dot(roll);
+    }
+
+    /* A speed no real vehicle in this mod reaches under its own power. Anything faster
+     * over one segment is a teleport or a chunk-load pop, and clamping it to zero travel
+     * is what stops that from spinning the wheels hundreds of revolutions. */
+    var MAX_PLAUSIBLE_BLOCKS_PER_SECOND = 40;
+
+    /**
+     * The angular travel (radians) of one node over the segment (from -> to), computed
+     * once here from the segment's starting orientation.
+     *
+     * Computed once here, from the segment's starting orientation, rather than per
+     * frame from the interpolated one. writeTransform slerps between from.rot and
+     * to.rot, so a per-frame recomputation would make odometer + alpha * travel
+     * non-monotonic in alpha and the wheel would visibly hunt back and forth through
+     * a curve.
+     */
+    function nodeSegmentTravel(node, from, to) {
+        var fromRot = _scratch.set(from.rot[0], from.rot[1], from.rot[2], from.rot[3]);
+        var delta = new THREE.Vector3(
+            to.pos[0] - from.pos[0],
+            to.pos[1] - from.pos[1],
+            to.pos[2] - from.pos[2]
+        );
+        var travel = rollTravel(node.axis, delta, fromRot);
+
+        /* Clamp implausible segments to zero travel, so a teleport or chunk-load pop
+         * does not spin the wheels hundreds of revolutions. */
+        var elapsedS = Math.max((to.t - from.t) / 1000, 0.001);
+        if (Math.abs(travel) > MAX_PLAUSIBLE_BLOCKS_PER_SECOND * elapsedS) {
+            return 0;
+        }
+
+        return node.radius > 0 ? travel / node.radius : 0;
+    }
 
     // -----------------------------------------------------------------------------
     // Terrain reload
@@ -585,7 +711,7 @@
      * over the buffer with no copying:
      *
      *   0   char[4]     "BM3D"
-     *   4   u32         format version
+     *   4   u32         format version (1 or 2)
      *   8   u32         vertex count
      *   12  u32         index count
      *   16  u32         atlas url byte length
@@ -593,7 +719,18 @@
      *       f32[v*3]    positions, block units relative to the pivot
      *       f32[v*2]    uvs
      *       u32[i]      indices
-     *       u8[v*3]     vertex colours, RGB
+     *       u8[v*3]     vertex colours, RGB, zero-padded to a 4-byte boundary
+     *
+     * v2 only, immediately after the colour padding:
+     *
+     *       u32         static index count: the parent's draw range is [0, this)
+     *       u32         node count
+     *       node[]      one per spinning part, in draw order:
+     *                     u32     index start
+     *                     u32     index count
+     *                     f32[3]  pivot, block units relative to the object pivot
+     *                     f32[3]  axis, normalised
+     *                     f32     radius, block units
      */
     function decode(buffer) {
         var view = new DataView(buffer);
@@ -603,7 +740,7 @@
             throw new Error("not a .bm3d file");
         }
         var version = view.getUint32(4, true);
-        if (version !== 1) {
+        if (version !== 1 && version !== 2) {
             throw new Error("unsupported .bm3d version " + version);
         }
 
@@ -621,6 +758,47 @@
         var indices = new Uint32Array(buffer, offset, indexCount);
         offset += indexCount * 4;
         var colors = new Uint8Array(buffer, offset, vertices * 3);
+        offset += vertices * 3;
+        offset = (offset + 3) & ~3;
+
+        /* A v1 file has no trailer. Defaulting staticIndexCount to the whole index buffer
+           is what keeps every turtle and ship rendering: a client that clamped the parent
+           to an unset field would draw nothing at all. */
+        var staticIndexCount = indexCount;
+        var nodes = [];
+        if (version >= 2) {
+            staticIndexCount = view.getUint32(offset, true);
+            offset += 4;
+            var nodeCount = view.getUint32(offset, true);
+            offset += 4;
+            for (var i = 0; i < nodeCount; i++) {
+                var indexStart = view.getUint32(offset, true);
+                offset += 4;
+                var nodeIndexCount = view.getUint32(offset, true);
+                offset += 4;
+                var pivot = new THREE.Vector3(
+                    view.getFloat32(offset, true),
+                    view.getFloat32(offset + 4, true),
+                    view.getFloat32(offset + 8, true)
+                );
+                offset += 12;
+                var axis = new THREE.Vector3(
+                    view.getFloat32(offset, true),
+                    view.getFloat32(offset + 4, true),
+                    view.getFloat32(offset + 8, true)
+                );
+                offset += 12;
+                var radius = view.getFloat32(offset, true);
+                offset += 4;
+                nodes.push({
+                    indexStart: indexStart,
+                    indexCount: nodeIndexCount,
+                    pivot: pivot,
+                    axis: axis,
+                    radius: radius
+                });
+            }
+        }
 
         var geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -632,8 +810,57 @@
 
         return {
             geometry: geometry,
-            material: material(url)
+            material: material(url),
+            staticIndexCount: staticIndexCount,
+            nodes: nodes,
+            nodeGeometries: buildNodeGeometries(geometry, nodes)
         };
+    }
+
+    /**
+     * Builds one child geometry per spinning node, sharing the parent's attribute and
+     * index buffers with setDrawRange rather than copying them - copying per node would
+     * re-upload the whole vertex buffer per wheel.
+     *
+     * Depends only on the file, so this runs once per cached resource and is then shared
+     * by every object using that mesh url, including two identical carriages.
+     */
+    function buildNodeGeometries(geometry, nodes) {
+        var position = geometry.attributes.position;
+        var index = geometry.index;
+        var result = [];
+
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            var nodeGeometry = new THREE.BufferGeometry();
+            nodeGeometry.setAttribute("position", position);
+            nodeGeometry.setAttribute("uv", geometry.attributes.uv);
+            nodeGeometry.setAttribute("color", geometry.attributes.color);
+            nodeGeometry.setIndex(index);
+            nodeGeometry.setDrawRange(node.indexStart, node.indexCount);
+
+            /* Centred on the pivot rather than fitted to the geometry, because the part
+               rotates about that pivot: a sphere fitted to the static pose is swept outside
+               by anything whose pivot is off-centre, and the part then gets frustum culled
+               while still plainly on screen. */
+            var maxDistSq = 0;
+            var end = node.indexStart + node.indexCount;
+            for (var j = node.indexStart; j < end; j++) {
+                var vi = index.array[j];
+                var dx = position.array[vi * 3] - node.pivot.x;
+                var dy = position.array[vi * 3 + 1] - node.pivot.y;
+                var dz = position.array[vi * 3 + 2] - node.pivot.z;
+                var distSq = dx * dx + dy * dy + dz * dz;
+                if (distSq > maxDistSq) {
+                    maxDistSq = distSq;
+                }
+            }
+            nodeGeometry.boundingSphere = new THREE.Sphere(node.pivot.clone(), Math.sqrt(maxDistSq));
+
+            result.push(nodeGeometry);
+        }
+
+        return result;
     }
 
     var materialCache = Object.create(null);
@@ -685,7 +912,13 @@
         Object.keys(objects).forEach(remove);
         Object.keys(meshCache).forEach(function (url) {
             meshCache[url].then(function (resource) {
+                /* Disposed together, never piecemeal: three.js drops the shared index
+                 * attribute's GL buffer on any single dispose, which would force the
+                 * parent's buffer to be re-uploaded on the next frame. */
                 resource.geometry.dispose();
+                resource.nodeGeometries.forEach(function (nodeGeometry) {
+                    nodeGeometry.dispose();
+                });
             }).catch(function () {
             });
         });
