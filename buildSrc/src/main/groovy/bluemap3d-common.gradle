@@ -96,14 +96,25 @@ afterEvaluate {
 }
 
 // LGPL-3.0-only. Every module carries the licence, from the first commit.
+//
+// Both files, because LGPL-3.0 is not a standalone licence: it is the GPL-3.0 text plus a
+// set of permissions layered over it. LICENSE is that supplement - its own section 4 keeps
+// referring to "the GNU GPL" - and LICENSE.GPL is what it refers to. Shipping only the
+// supplement distributes a licence with its own body missing.
 sourcesJar {
     from(rootProject.file('LICENSE')) {
+        rename { "${it}_BlueMap3D" }
+    }
+    from(rootProject.file('LICENSE.GPL')) {
         rename { "${it}_BlueMap3D" }
     }
 }
 
 jar {
     from(rootProject.file('LICENSE')) {
+        rename { "${it}_BlueMap3D" }
+    }
+    from(rootProject.file('LICENSE.GPL')) {
         rename { "${it}_BlueMap3D" }
     }
 }
