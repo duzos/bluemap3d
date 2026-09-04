@@ -4,19 +4,26 @@ import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.Contraption;
 import dev.duzo.bluemap3d.Config;
 import dev.duzo.bluemap3d.api.BlockVolume;
+import dev.duzo.bluemap3d.api.ModelAttachment;
 import dev.duzo.bluemap3d.api.SceneObject;
 import dev.duzo.bluemap3d.api.SceneObjectProvider;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix3f;
+import org.joml.Matrix4f;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -98,6 +105,66 @@ public final class ContraptionProvider implements SceneObjectProvider {
     private static final Vec3 UNIT_Y = new Vec3(0, 1, 0);
     private static final Vec3 UNIT_Z = new Vec3(0, 0, 1);
 
+    // -----------------------------------------------------------------------------
+    // Bogey wheels
+    // -----------------------------------------------------------------------------
+    //
+    // A bogey's wheels are drawn by Create's client-only BogeyRenderer, from an obj mesh,
+    // never by the block model - the blockstate's only model is the plain rail-top piece,
+    // shared by every bogey regardless of size. So a bogey meshed from its block state
+    // alone comes out with a track on top of thin air. Attachments fill in what the
+    // renderer would otherwise draw: one static frame, and one spinning wheel pair per
+    // axle.
+    //
+    // Both models are real geometry in Create's jar and read the normal way; nothing
+    // Create-specific is on the classpath for them. Detecting a bogey block and reading
+    // its axis needs no Create class either - the axis property Create's own
+    // AbstractBogeyBlock exposes is just vanilla BlockStateProperties.HORIZONTAL_AXIS.
+
+    private static final ResourceLocation SMALL_BOGEY =
+            ResourceLocation.fromNamespaceAndPath("create", "small_bogey");
+    private static final ResourceLocation LARGE_BOGEY =
+            ResourceLocation.fromNamespaceAndPath("create", "large_bogey");
+    private static final ResourceLocation BOGEY_FRAME_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_frame");
+    private static final ResourceLocation BOGEY_WHEEL_MODEL =
+            ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_wheel");
+
+    // Where the wheels sit relative to the bogey block, and how fast they should turn.
+    // Create's own placement lives in StandardBogeyRenderer, a client class a dedicated
+    // server cannot load - so these are not read at runtime, but they are not a guess
+    // either. They were decompiled from that renderer's bytecode, which is the exact
+    // arithmetic the client itself uses to place bogey_wheel/bogey_frame relative to the
+    // bogey block's own position:
+    //
+    //   Small.render(): translate(0, 0.75, +-1) then rotateX(angle), once per axle
+    //   Large.render(): translate(0, 1.0, 0) then rotateX(angle), one axle only
+    //
+    // Both are in block units, in the model's own un-rotated (axis=z) frame - the same
+    // frame bogey_frame.obj and bogey_wheel.obj are authored in. If Create ever moves its
+    // wheels, this is the place that has to follow; there is no live value to re-read.
+    private static final float SMALL_AXLE_HEIGHT = 0.75f;
+    private static final float SMALL_AXLE_SPACING = 1.0f;
+    private static final float LARGE_AXLE_HEIGHT = 1.0f;
+
+    // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
+    // itself (a normal, both-sides Block class, not the renderer) exposes
+    // getWheelRadius(), and AbstractBogeyBlockEntity.animate() turns the wheel by exactly
+    // 360 * distance / (2*pi*getWheelRadius()) degrees, which is the same
+    // distance-over-radius relationship core's browser side uses. So rather than measuring
+    // bogey_wheel.obj's rim by eye, these are that method's own constants
+    // (getWheelRadius() returns radius/16, so radius alone is already in the model's own
+    // 0..16 space Spin expects): 6.5 for every bogey but a large one, 12.5 for large.
+    private static final float WHEEL_RADIUS_SMALL = 6.5f;
+    private static final float WHEEL_RADIUS_LARGE = 12.5f;
+
+    // bogey_wheel.obj is authored with both of an axle's wheels already mirrored across
+    // its own local origin, so one attachment is one whole axle: the axle line passes
+    // through that origin along the model's own local X, which is what the renderer spins
+    // it about (rotateXDegrees).
+    private static final Vector3f WHEEL_PIVOT = new Vector3f(0f, 0f, 0f);
+    private static final Vector3f WHEEL_AXIS = new Vector3f(1f, 0f, 0f);
+
     /**
      * Entity classes whose rotation could not be sampled, so it is reported once each
      * rather than every interval for as long as the contraption exists.
@@ -173,6 +240,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
         }
 
         Map<BlockPos, BlockState> blocks = new HashMap<>(source.size());
+        List<ModelAttachment> attachments = new ArrayList<>();
         long version = FNV_OFFSET;
         for (Map.Entry<BlockPos, StructureTemplate.StructureBlockInfo> entry : source.entrySet()) {
             BlockPos pos = entry.getKey();
@@ -184,12 +252,16 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // states at different positions cancel each other out, and any change with an
             // even number of matching blocks - a pair of doors opening - is invisible.
             version ^= mix(mix(FNV_OFFSET, pos.asLong()), Block.getId(state));
+            // Not folded into the version separately: a bogey's attachments are derived
+            // entirely from its position and block state, both already folded in above, so
+            // there is nothing about them that could change independently of the mesh.
+            addBogeyAttachments(pos, state, attachments);
         }
         version = mix(version, source.size());
 
         // Create stores block positions already relative to the anchor, which is exactly
         // what BlockVolume.of wants. Nothing to rebase.
-        BlockVolume volume = BlockVolume.of(blocks, PIVOT);
+        BlockVolume volume = BlockVolume.of(blocks, PIVOT, attachments);
         Vec3 position = entity.getAnchorVec().add(PIVOT);
         Quaternionf rotation = rotationOf(entity);
         // The dimension goes in the id because a carriage spanning a portal exists as one
@@ -283,5 +355,63 @@ public final class ContraptionProvider implements SceneObjectProvider {
     /** FNV-1a's mixing step. */
     private static long mix(long hash, long value) {
         return (hash ^ value) * 0x100000001b3L;
+    }
+
+    /**
+     * Appends a bogey block's frame and per-axle wheels to {@code out}, or does nothing if
+     * {@code state} is not a small or large bogey.
+     *
+     * <p>A small bogey gets two spinning attachments, one per axle; a large bogey gets one -
+     * matching how many times Create's own renderer places {@code bogey_wheel} for each.
+     */
+    private static void addBogeyAttachments(BlockPos pos, BlockState state, List<ModelAttachment> out) {
+        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        boolean small = SMALL_BOGEY.equals(id);
+        boolean large = LARGE_BOGEY.equals(id);
+        if (!small && !large) {
+            return;
+        }
+        if (!state.hasProperty(BlockStateProperties.HORIZONTAL_AXIS)) {
+            // Should not happen for either bogey block; guarded rather than trusted so a
+            // future Create version that changes this property does not throw mid-collect.
+            return;
+        }
+        Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
+
+        out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(), bogeyTransform(axis, 0f, 0f)));
+
+        float height = small ? SMALL_AXLE_HEIGHT : LARGE_AXLE_HEIGHT;
+        float radius = small ? WHEEL_RADIUS_SMALL : WHEEL_RADIUS_LARGE;
+        float[] axleOffsets = small ? new float[]{SMALL_AXLE_SPACING, -SMALL_AXLE_SPACING} : new float[]{0f};
+        for (float axleOffset : axleOffsets) {
+            Matrix4f transform = bogeyTransform(axis, height, axleOffset);
+            ModelAttachment.Spin spin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, radius);
+            out.add(new ModelAttachment(pos, BOGEY_WHEEL_MODEL, Map.of(), transform, spin));
+        }
+    }
+
+    /**
+     * The transform for a bogey attachment: {@code bogey_frame.obj} and
+     * {@code bogey_wheel.obj} are both authored block-centre-relative rather than
+     * corner-relative like an element model, so every attachment needs the {@code +0.5}
+     * shift back onto {@link ModelAttachment}'s corner-relative convention - and one for
+     * axis {@code x} additionally needs the same 90 degree turn about the block's centre
+     * that {@code BogeyBlockEntityRenderer} gives the whole render for that axis, because
+     * both obj models are authored assuming axis {@code z}.
+     *
+     * @param dy vertical offset from the bogey block's own position, in block units
+     * @param dz offset along the model's un-rotated (axis=z) local depth, in block units -
+     *           this is what actually separates a small bogey's two axles, since it is
+     *           applied before the axis-x turn above would carry it onto world x instead
+     */
+    private static Matrix4f bogeyTransform(Direction.Axis axis, float dy, float dz) {
+        Matrix4f matrix = new Matrix4f().translate(0.5f, 0.5f, 0.5f);
+        if (axis == Direction.Axis.X) {
+            matrix.rotateY((float) Math.toRadians(90));
+        }
+        if (dy != 0f || dz != 0f) {
+            matrix.translate(0f, dy, dz);
+        }
+        return matrix;
     }
 }
