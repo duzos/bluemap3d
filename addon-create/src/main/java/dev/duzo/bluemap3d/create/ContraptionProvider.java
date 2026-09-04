@@ -210,17 +210,11 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // rotation plane Create calls "angle zero" - it picks its own reference direction from
     // axis alone (perpendicularBasis in bluemap3d.core.js) - so the orbit's phase, as seen
     // in the browser, does not line up with Create's own rest-pose direction. That is
-    // harmless for the animation itself: BlueMap never renders this contraption next to
-    // Create's own client-side renderer for a side-by-side comparison, so no observer can
-    // see the phase differ, and the cycle length (this file's whole reason for deriving a
-    // period at all) is unaffected. It does matter at travel = 0, because the pin's
-    // existing static transform below was tuned to reproduce Create's true rest pose
-    // exactly, and the browser's orbit offset is not zero at travel = 0 - it starts one
-    // full radius off in whatever direction perpendicularBasis picked. Left alone, that
-    // would show up as a permanent 0.25 block error on a stationary bogey. PIN_ORBIT_DZ
-    // below cancels exactly that, folded into the pin's transform the same way BOGEY_DROP
-    // already folds in Create's own origin mismatch, so travel = 0 still reproduces the
-    // tuned rest pose and only travel > 0 moves the pin.
+    // harmless: the browser's orbit offset is measured relative to its own zero-angle
+    // pose, not relative to the pivot, so it is exactly zero at travel = 0 regardless of
+    // which direction perpendicularBasis picked. The pin's static transform below can
+    // therefore just be Create's true rest pose, with nothing folded in to cancel a
+    // phantom axis-derived offset, and only travel > 0 moves the pin.
     //
     // Do not "fix" the trailing rotateX(-angle) in Create's own pin transform - it belongs
     // there. translate(0,1,0) rotateX(angle) translate(0,0.25,0) rotateX(-angle) rotates
@@ -259,10 +253,6 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // by 16 below wherever ModelAttachment wants model-space (0..16) units instead.
     private static final float PISTON_STROKE = 0.25f;
     private static final float PIN_ORBIT_RADIUS = 0.25f;
-    // Cancels the orbit's own travel=0 offset (one radius, in whatever direction the
-    // browser's axis-derived reference happens to be - see the block comment above) so
-    // the pin's baked rest position is unchanged from the static placement this replaces.
-    private static final float PIN_ORBIT_DZ = PIN_ORBIT_RADIUS;
 
     // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
     // itself (a normal, both-sides Block class, not the renderer) exposes
@@ -557,8 +547,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
         // Large: no frame. The gearbox housing and belt sit static at the same raw origin
         // (see BOGEY_DRIVE_HEIGHT above), the piston reciprocates, the wheel pair spins,
         // and the pin orbits - see the block comment above for how the piston's and pin's
-        // periods were derived from the wheel radius, and why the pin's transform below
-        // carries PIN_ORBIT_DZ where the piston's does not.
+        // periods were derived from the wheel radius.
         Matrix4f driveTransform = bogeyTransform(axis, BOGEY_DROP + BOGEY_DRIVE_HEIGHT, 0f);
         out.add(new ModelAttachment(pos, BOGEY_DRIVE_MODEL, Map.of(), driveTransform));
         out.add(new ModelAttachment(pos, BOGEY_DRIVE_BELT_MODEL, Map.of(), driveTransform));
@@ -579,7 +568,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
         ModelAttachment.Orbit pinMotion = new ModelAttachment.Orbit(
                 new Vector3f(0f, 0f, 0f), WHEEL_AXIS, PIN_ORBIT_RADIUS * 16f, WHEEL_RADIUS_LARGE);
         out.add(new ModelAttachment(pos, BOGEY_PIN_MODEL, Map.of(),
-                bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, PIN_ORBIT_DZ), pinMotion));
+                bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, 0f), pinMotion));
     }
 
     /**
