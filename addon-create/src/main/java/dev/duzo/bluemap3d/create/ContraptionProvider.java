@@ -180,13 +180,53 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // same frame every one of these obj models is authored in. If Create ever moves a
     // part, this is the place that has to follow; there is no live value to re-read.
     //
-    // Only LARGE_BOGEY_WHEELS is a rotation (rotateX(angle) alone), so it is the only new
-    // large part that becomes a Spin below. BOGEY_PISTON's reciprocation and BOGEY_PIN's
-    // orbit-without-spin are both real motion but neither is a single rotation about a
-    // fixed axis, which is all ModelAttachment.Spin can express - reproducing them needs a
-    // second motion primitive core does not have yet. Rather than fake it with a spin that
-    // would visibly slip, both are attached static, at their angle-0 rest position, exactly
-    // as this file already accepts BOGEY_DRIVE_BELT's texture scroll going undrawn.
+    // LARGE_BOGEY_WHEELS is a rotation (rotateX(angle) alone), so it is a Spin below.
+    // BOGEY_PISTON's reciprocation is a slide along local Z (Oscillate) and BOGEY_PIN's
+    // orbit-without-spin is a circle traced without turning the geometry itself (Orbit) -
+    // core gained both motion kinds alongside Spin, so all three large moving parts now
+    // animate. BOGEY_DRIVE_BELT is still attached static: its motion is a texture UV
+    // scroll (shiftUVScrolling), not geometry, and stays out of scope the same way this
+    // file already accepts that a block-state mesh alone cannot show the plain shaft
+    // stubs Create's renderer also draws.
+    //
+    // All three motions are driven by the one wheel angle, so Oscillate's and Orbit's
+    // period has to be derived from the wheel radius rather than guessed. The browser
+    // computes a Spin's angle as travel / radius (radians), and that is by definition the
+    // same "angle" Create's own render() feeds into the piston's sin(rad(angle)) and the
+    // pin's rotateX(angle) - one shared float parameter in StandardBogeyRenderer$Large,
+    // confirmed by javap. So setting period = WHEEL_RADIUS_LARGE makes
+    // sin(travel / period) and the orbit's travel / period complete exactly one cycle per
+    // wheel revolution, matching Create exactly - no separate period constant needed.
+    //
+    // Units: Create's own PISTON_STROKE and PIN_ORBIT_RADIUS below are read off the
+    // decompiled render() in block units (0.25 for both), because that is the unit
+    // PoseStack.translate uses. ModelAttachment.Oscillate's amplitude and Orbit's radius
+    // are documented in the model's own 0..16 space instead, the same space
+    // WHEEL_RADIUS_LARGE is already in - so both get multiplied by 16 below, exactly the
+    // inverse of VolumeMesher's nodeFor() dividing a Motion's radius back down by 16 when
+    // it bakes the node.
+    //
+    // Orbit is the subtle one. The browser has no way to know which direction in the
+    // rotation plane Create calls "angle zero" - it picks its own reference direction from
+    // axis alone (perpendicularBasis in bluemap3d.core.js) - so the orbit's phase, as seen
+    // in the browser, does not line up with Create's own rest-pose direction. That is
+    // harmless for the animation itself: BlueMap never renders this contraption next to
+    // Create's own client-side renderer for a side-by-side comparison, so no observer can
+    // see the phase differ, and the cycle length (this file's whole reason for deriving a
+    // period at all) is unaffected. It does matter at travel = 0, because the pin's
+    // existing static transform below was tuned to reproduce Create's true rest pose
+    // exactly, and the browser's orbit offset is not zero at travel = 0 - it starts one
+    // full radius off in whatever direction perpendicularBasis picked. Left alone, that
+    // would show up as a permanent 0.25 block error on a stationary bogey. PIN_ORBIT_DZ
+    // below cancels exactly that, folded into the pin's transform the same way BOGEY_DROP
+    // already folds in Create's own origin mismatch, so travel = 0 still reproduces the
+    // tuned rest pose and only travel > 0 moves the pin.
+    //
+    // Do not "fix" the trailing rotateX(-angle) in Create's own pin transform - it belongs
+    // there. translate(0,1,0) rotateX(angle) translate(0,0.25,0) rotateX(-angle) rotates
+    // the crank arm to swing the pin's centre around a circle, then un-rotates by the same
+    // angle so the pin itself never turns, only orbits - which is exactly Orbit's contract
+    // and exactly why this is not a Spin.
     //
     // Create's own figures are measured from a different origin than bogeyTransform's
     // block centre, so taken as written they hang the whole bogey in mid air above the
@@ -212,6 +252,17 @@ public final class ContraptionProvider implements SceneObjectProvider {
     private static final float BOGEY_DRIVE_HEIGHT = -0.75f;
     // BOGEY_PIN's angle-0 rest translate is 1.25 (1 + 0.25) - 0.75.
     private static final float BOGEY_PIN_HEIGHT = 0.5f;
+
+    // Create's own amplitude and orbit radius, both in block units, straight off the
+    // decompiled render(): translate(0, 0, 0.25 * sin(rad(angle))) for the piston, and
+    // the 0.25 in translate(0, 0.25, 0) between the pin's two rotateX calls. Multiplied
+    // by 16 below wherever ModelAttachment wants model-space (0..16) units instead.
+    private static final float PISTON_STROKE = 0.25f;
+    private static final float PIN_ORBIT_RADIUS = 0.25f;
+    // Cancels the orbit's own travel=0 offset (one radius, in whatever direction the
+    // browser's axis-derived reference happens to be - see the block comment above) so
+    // the pin's baked rest position is unchanged from the static placement this replaces.
+    private static final float PIN_ORBIT_DZ = PIN_ORBIT_RADIUS;
 
     // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
     // itself (a normal, both-sides Block class, not the renderer) exposes
@@ -465,9 +516,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
      *
      * <p>A small bogey gets its frame plus two spinning wheel attachments, one per axle. A
      * large bogey never gets a frame - Create's own {@code $Large} renderer does not draw
-     * one either - and instead gets the gearbox housing, belt and piston static, one
-     * spinning wheel pair, and the crank pin static. See the constants block above for
-     * where each of those numbers came from.
+     * one either - and instead gets the gearbox housing and belt static, a reciprocating
+     * piston, one spinning wheel pair, and an orbiting crank pin. See the constants block
+     * above for where each of those numbers came from.
      */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
                                             List<ModelAttachment> out) {
@@ -503,21 +554,32 @@ public final class ContraptionProvider implements SceneObjectProvider {
             return;
         }
 
-        // Large: no frame. The gearbox housing, belt and piston all sit static at the same
-        // raw origin (see BOGEY_DRIVE_HEIGHT above), the wheel pair spins, and the crank
-        // pin is static at its rest pose - see the constants block for why the piston and
-        // pin cannot be a Spin.
+        // Large: no frame. The gearbox housing and belt sit static at the same raw origin
+        // (see BOGEY_DRIVE_HEIGHT above), the piston reciprocates, the wheel pair spins,
+        // and the pin orbits - see the block comment above for how the piston's and pin's
+        // periods were derived from the wheel radius, and why the pin's transform below
+        // carries PIN_ORBIT_DZ where the piston's does not.
         Matrix4f driveTransform = bogeyTransform(axis, BOGEY_DROP + BOGEY_DRIVE_HEIGHT, 0f);
         out.add(new ModelAttachment(pos, BOGEY_DRIVE_MODEL, Map.of(), driveTransform));
         out.add(new ModelAttachment(pos, BOGEY_DRIVE_BELT_MODEL, Map.of(), driveTransform));
-        out.add(new ModelAttachment(pos, BOGEY_PISTON_MODEL, Map.of(), driveTransform));
+
+        ModelAttachment.Oscillate pistonMotion =
+                new ModelAttachment.Oscillate(new Vector3f(0f, 0f, 1f), PISTON_STROKE * 16f, WHEEL_RADIUS_LARGE);
+        out.add(new ModelAttachment(pos, BOGEY_PISTON_MODEL, Map.of(), driveTransform, pistonMotion));
 
         Matrix4f wheelTransform = bogeyTransform(axis, BOGEY_DROP + LARGE_AXLE_HEIGHT, 0f);
         ModelAttachment.Spin wheelSpin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, WHEEL_RADIUS_LARGE);
         out.add(new ModelAttachment(pos, LARGE_BOGEY_WHEEL_MODEL, Map.of(), wheelTransform, wheelSpin));
 
+        // Orbit's own pivot never affects where the browser draws the part - it is a pure
+        // translation, no rotation, so the pivot the browser adds cancels exactly against
+        // the pivot it subtracts (see bluemap3d.core.js's writeTransform, KIND_ORBIT). The
+        // origin is used here for the same reason WHEEL_PIVOT is: it is the model's own
+        // natural reference point, and nothing about Orbit's contract asks for another one.
+        ModelAttachment.Orbit pinMotion = new ModelAttachment.Orbit(
+                new Vector3f(0f, 0f, 0f), WHEEL_AXIS, PIN_ORBIT_RADIUS * 16f, WHEEL_RADIUS_LARGE);
         out.add(new ModelAttachment(pos, BOGEY_PIN_MODEL, Map.of(),
-                bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, 0f)));
+                bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, PIN_ORBIT_DZ), pinMotion));
     }
 
     /**
