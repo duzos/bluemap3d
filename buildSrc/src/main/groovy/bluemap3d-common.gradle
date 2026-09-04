@@ -148,6 +148,7 @@ afterEvaluate {
                 'bluemap_version_range'        : bluemap_version_range,
                 'computercraft_version'        : computercraft_version,
                 'create_version'               : create_version,
+                'create_version_range'         : create_version_range,
                 'sable_version'                : sable_version,
                 'mod_name'                     : project.ext.mod_name,
                 'mod_author'                   : mod_author,

@@ -35,6 +35,6 @@ side="SERVER"
 [[dependencies.${mod_id}]]
 modId="create"
 type="required"
-versionRange="[${create_version},)"
+versionRange="${create_version_range}"
 ordering="AFTER"
 side="SERVER"
