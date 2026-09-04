@@ -5,17 +5,26 @@ plugins {
 
 ext {
     mod_id = 'bluemap3d_create'
-    mod_name = 'BlueMap3D: Trains'
-    mod_description = 'Shows Create trains as real 3D models on your BlueMap, one object per carriage.'
+    mod_name = 'BlueMap: Create'
+    mod_description = 'Shows Create trains and moving contraptions as real 3D models on your BlueMap - carriages, bearings, gantries, pistons and minecart contraptions.'
 }
 
 dependencies {
-    // Create's maven pulls a large transitive graph (Registrate, Flywheel, Ponder). The
-    // provider is a stub for now, so the dependency is left commented rather than paid
-    // for on every build. Uncomment when implementing it.
+    // Create's API. Compile-only: the addon declares a `required` dependency on create in
+    // its toml, so it is always present at runtime and must never be bundled.
     //
-    // compileOnly "com.simibubi.create:create-${minecraft_version}:${create_version}:slim"
-    // compileOnly "com.tterrag.registrate:Registrate:MC${minecraft_version}-..."
+    // The `slim` classifier is the one to compile against. It is the same Create classes
+    // as the main jar minus the jar-in-jars it ships (Registrate, Ponder) - and since
+    // every dependency in Create's published pom is runtime-scoped, a compileOnly
+    // dependency resolves to this one file and nothing else. Registrate is not needed
+    // here: the provider touches two Create classes, neither of which is `Create` itself,
+    // whose REGISTRATE field is the only reason a dependent would need it.
+    compileOnly "com.simibubi.create:create-${minecraft_version}:${create_version}:slim"
+
+    // The real mod, for the dev server - the main jar rather than slim, because this one
+    // has to actually run and the loader needs the jar-in-jars unpacked. Create declares
+    // no external mod dependencies on 1.21.1; everything it needs is inside.
+    devMods "com.simibubi.create:create-${minecraft_version}:${create_version}"
 }
 
 publishMods {
@@ -23,7 +32,7 @@ publishMods {
     changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
     type = STABLE
     version = "${project.version}-${minecraft_version}"
-    displayName = "BlueMap3D: Trains ${project.version} (${minecraft_version} NeoForge)"
+    displayName = "BlueMap: Create ${project.version} (${minecraft_version} NeoForge)"
     modLoaders.add("neoforge")
 
     def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }
