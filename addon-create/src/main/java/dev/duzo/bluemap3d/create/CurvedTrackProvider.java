@@ -180,7 +180,21 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * still caught, and a shape that reuses one of these names for a different model is not
      * wrongly swept in.
      */
-    private static final Set<String> OBJ_MODEL_NAMES = Set.of("diag", "diag_2", "ascending", "cross_diag");
+    /**
+     * Every track model Create ships as an OBJ mesh rather than as element geometry.
+     *
+     * <p>Checked against the jar: {@code x_ortho}, {@code z_ortho}, {@code cross_ortho}
+     * and {@code teleport} are element models, which BlueMap renders into its terrain
+     * tiles on its own. Everything listed here is an OBJ mesh, which BlueMap cannot read,
+     * so those blocks are invisible on the map unless this addon draws them.
+     *
+     * <p>Do not add the element-modelled shapes to this list. They would then be drawn
+     * twice, once by BlueMap's terrain and once by us, which is the exact artefact this
+     * project takes trouble to avoid elsewhere.
+     */
+    private static final Set<String> OBJ_MODEL_NAMES = Set.of(
+            "diag", "diag_2", "ascending", "cross_diag",
+            "cross_d1_xo", "cross_d1_zo", "cross_d2_xo", "cross_d2_zo");
 
     /** Every {@link TrackShape} whose model is one of {@link #OBJ_MODEL_NAMES}. */
     private static final Set<TrackShape> OBJ_MODELLED_SHAPES = Arrays.stream(TrackShape.values())
