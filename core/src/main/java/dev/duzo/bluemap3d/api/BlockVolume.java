@@ -220,8 +220,9 @@ public interface BlockVolume {
     }
 
     /**
-     * A sparse volume with attachments. The contraption case: Create hands out a
-     * carriage's blocks as a map, and its bogey wheels are attachments on top.
+     * A sparse volume with attachments. The case this covers: a mod hands out a moving
+     * structure's blocks as a map, and some of its parts - wheels, pistons and the like -
+     * are attachments on top.
      *
      * <p>An empty block map returns {@link #EMPTY}, which discards the attachments with
      * it. A volume with nothing to hang an attachment off is not a volume.

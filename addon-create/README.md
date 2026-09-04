@@ -20,7 +20,7 @@
 ## What does this mod do?
 
 Puts your [Create](https://modrinth.com/mod/create) trains on your web map. A normal BlueMap
-shows the track and nothing on it, because a contraption blocks leave the world when it
+shows the track and nothing on it, because a contraption's blocks leave the world when it
 assembles.
 
 Every carriage gets drawn with its real blocks and textures, and moves along the line while
@@ -40,7 +40,11 @@ Anything Create moves as a contraption gets moved on the map too.
 Server side. Players do not need it.
 
 Put BlueMap3D, BlueMap: Create and [Create](https://modrinth.com/mod/create) in `mods/`,
-next to [BlueMap](https://modrinth.com/mod/bluemap). Nothing to configure.
+next to [BlueMap](https://modrinth.com/mod/bluemap). Works with the defaults.
+
+A config file appears at `config/bluemap3d_create-server.toml` after the first run, with
+settings for curved track (`curvedTrack`, `gridSize`, `maxCurveObjects`) and a verbose
+logging switch (`verboseTrackLogging`). Most servers will not need to touch it.
 
 ## Fast windmills look weird
 
@@ -57,8 +61,9 @@ Only in loaded chunks. Create keeps simulating the train, but the map cannot see
 disappears and comes back. Chunk loaders along the line sort that.
 
 **Do curved tracks show?**
-Not yet. Create draws the curve between two track pieces rather than placing blocks there,
-so there is nothing on the map to draw. Straight and diagonal track is fine.
+Yes. Create draws the curve between two track pieces rather than placing blocks there, so
+this addon walks the same bezier itself and draws it as real geometry. Straight, diagonal,
+ascending and crossing track all draw too.
 
 **Chests and display boards on my train look wrong.**
 They get drawn as their block shape, without the lid or the text. Contraptions have a lot of

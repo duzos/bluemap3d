@@ -31,9 +31,9 @@ public final class CreateConfig {
         CURVED_TRACK = builder
                 .comment("Draw curved track as real geometry.",
                         "",
-                        "Off by default. Nobody has measured what this costs on a server with a",
-                        "large rail network yet, so turning it on is a deliberate choice rather",
-                        "than something that just happens.")
+                        "On by default. Nobody has measured what this costs on a server with a",
+                        "large rail network yet, so turn it off if track publishing shows up as a",
+                        "cost worth avoiding.")
                 .define("curvedTrack", true);
 
         CURVE_GRID_SIZE = builder

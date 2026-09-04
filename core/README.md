@@ -48,8 +48,9 @@ Put it in `mods/` next to [BlueMap](https://modrinth.com/mod/bluemap), then add 
 | `tileReloadMinSeconds` | `-1` | Set to `5` so viewers see changed terrain without refreshing |
 | `useResourcePacks` | `true` | Real models and textures instead of flat colours |
 | `sources` | `[]` | Extra resource packs or jars to read models from |
-| `shapeFallback` | `false` | Blocks with no model get drawn as their outline shape instead of a cube |
+| `shapeFallback` | `true` | Blocks with no model get drawn as their outline shape instead of a cube |
 | `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have |
+| `maxAttachmentsPerObject` | `4096` | Skips meshing an object with more attachments than this |
 
 ## Questions
 

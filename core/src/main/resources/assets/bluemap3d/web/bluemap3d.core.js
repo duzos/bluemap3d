@@ -811,7 +811,7 @@
      *       u32[i]      indices
      *       u8[v*3]     vertex colours, RGB, zero-padded to a 4-byte boundary
      *
-     * v2 and v3 only, immediately after the colour padding:
+     * v2, v3 and v4 only, immediately after the colour padding:
      *
      *       u32         static index count: the parent's draw range is [0, this)
      *       u32         node count
@@ -823,8 +823,11 @@
      *                     f32[3]  pivot, block units relative to the object pivot
      *                     f32[3]  axis, normalised
      *                     f32     radius, block units
-     *                     f32     period, blocks of travel per cycle (v3+ only; a v2
-     *                             node has none, and kind 0 ignores it anyway)
+     *                     f32     period, the divisor in sin(travel / period) /
+     *                             travel / period, block units - a full cycle is
+     *                             2 * PI * period of travel, not period itself
+     *                             (v3+ only; a v2 node has none, and kind 0 ignores
+     *                             it anyway)
      *                     f32     rate, radians per second (v4 only; kinds other than
      *                             KIND_RATE ignore it)
      */

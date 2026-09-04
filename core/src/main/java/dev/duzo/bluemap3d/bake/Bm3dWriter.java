@@ -40,7 +40,10 @@ import java.nio.charset.StandardCharsets;
  *                           f32[3]  pivot, block units relative to the object pivot
  *                           f32[3]  axis, normalised
  *                           f32     radius, block units
- *                           f32     period, blocks of travel per cycle - unused by
+ *                           f32     period, the divisor in {@code sin(travel / period)} /
+ *                                   {@code travel / period}, block units (a full cycle is
+ *                                   {@code 2 * PI * period} of travel, not {@code period}
+ *                                   itself) - unused by
  *                                   {@code KIND_SPIN}, present regardless so every node
  *                                   is the same size
  *                           f32     rate, radians per second - {@code KIND_RATE} only,
