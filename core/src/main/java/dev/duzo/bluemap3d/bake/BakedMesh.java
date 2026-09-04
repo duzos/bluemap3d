@@ -1,6 +1,7 @@
 package dev.duzo.bluemap3d.bake;
 
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 /**
  * A meshed block volume: one vertex buffer, one index buffer, one texture atlas.
@@ -20,6 +21,10 @@ import java.awt.image.BufferedImage;
  * @param indices     3 per triangle
  * @param atlas       the texture every uv refers to
  * @param sourceBlocks how many blocks went in, for logging and limits
+ * @param staticIndexCount indices before any spinning attachment was emitted. The browser
+ *                         clamps the parent mesh's draw range to this, so a node's geometry
+ *                         is drawn once, by the node, and never a second time by the parent
+ * @param nodes            the parts of the mesh that the browser turns independently
  */
 public record BakedMesh(
         float[] positions,
@@ -27,8 +32,20 @@ public record BakedMesh(
         byte[] colors,
         int[] indices,
         BufferedImage atlas,
-        int sourceBlocks
+        int sourceBlocks,
+        int staticIndexCount,
+        List<SpinNode> nodes
 ) {
+    /**
+     * A part of the mesh that the browser turns, rather than one baked in place.
+     *
+     * <p>An index range rather than a vertex range because that is what three.js's
+     * {@code setDrawRange} takes.
+     */
+    public record SpinNode(int indexStart, int indexCount, float[] pivot, float[] axis,
+                           float radius) {
+    }
+
     /** Number of vertices. */
     public int vertexCount() {
         return positions.length / 3;

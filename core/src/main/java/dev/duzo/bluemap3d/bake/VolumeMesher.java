@@ -1,12 +1,17 @@
 package dev.duzo.bluemap3d.bake;
 
+import dev.duzo.bluemap3d.Config;
 import dev.duzo.bluemap3d.api.BlockVolume;
+import dev.duzo.bluemap3d.api.ModelAttachment;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -137,8 +142,48 @@ public final class VolumeMesher {
 
         // Extra models the block states cannot describe: a turtle's modem, a sign's text.
         // Emitted into the same buffer and atlas, so they cost nothing extra at render time.
-        for (dev.duzo.bluemap3d.api.ModelAttachment attachment : volume.attachments()) {
+        //
+        // Static attachments first, then spinning ones, so that everything the browser
+        // animates is one contiguous run at the end of the buffer. A BufferGeometry has
+        // exactly one draw range, so that tail is the only shape in which the parent mesh
+        // can say "draw everything except the parts my children draw". Fold these back
+        // into one loop and every spinning part renders twice, once stuck in place by the
+        // parent and once turning, z-fighting with itself.
+        //
+        // The cap is applied here, at the partition, and not while emitting. Demoting an
+        // attachment after the static pass has closed would leave its geometry past
+        // staticIndexCount with no node claiming it, so neither the parent nor any child
+        // would draw it and it would vanish outright.
+        List<ModelAttachment> staticAttachments = new ArrayList<>();
+        List<ModelAttachment> spinning = new ArrayList<>();
+        for (ModelAttachment attachment : volume.attachments()) {
+            (attachment.spin() == null ? staticAttachments : spinning).add(attachment);
+        }
+        int cap = Config.MAX_SPIN_NODES_PER_OBJECT.get();
+        if (spinning.size() > cap) {
+            LOGGER.warn("{} spinning attachments exceeds maxSpinNodesPerObject ({}); "
+                    + "the excess is drawn in place instead", spinning.size(), cap);
+            staticAttachments.addAll(spinning.subList(cap, spinning.size()));
+            spinning = spinning.subList(0, cap);
+        }
+
+        for (ModelAttachment attachment : staticAttachments) {
             emitAttachment(attachment, pivot, atlas, mesh, worldPos);
+        }
+        int staticIndexCount = mesh.indexCount();
+
+        List<BakedMesh.SpinNode> nodes = new ArrayList<>(spinning.size());
+        for (ModelAttachment attachment : spinning) {
+            int start = mesh.indexCount();
+            emitAttachment(attachment, pivot, atlas, mesh, worldPos);
+            int count = mesh.indexCount() - start;
+            if (count == 0) {
+                // No source resolved the model. An empty range would make the browser
+                // compute a NaN bounding sphere, and a NaN sphere makes frustum culling
+                // behave unpredictably rather than merely wrongly.
+                continue;
+            }
+            nodes.add(nodeFor(attachment, pivot, start, count));
         }
 
         if (!unresolved.isEmpty()) {
@@ -151,9 +196,9 @@ public final class VolumeMesher {
         if (mesh.isEmpty()) {
             return empty();
         }
-        BakedMesh baked = mesh.build(atlas, blocks);
-        LOGGER.debug("Meshed {} blocks -> {} vertices, {} triangles, {} sprites",
-                blocks, baked.vertexCount(), baked.triangleCount(), atlas.size());
+        BakedMesh baked = mesh.build(atlas, blocks, staticIndexCount, nodes);
+        LOGGER.debug("Meshed {} blocks -> {} vertices, {} triangles, {} sprites, {} nodes",
+                blocks, baked.vertexCount(), baked.triangleCount(), atlas.size(), nodes.size());
         return baked;
     }
 
@@ -164,7 +209,7 @@ public final class VolumeMesher {
      * so there is no neighbour relationship to reason about, and CC's upgrade models already
      * omit the face that sits flush against the turtle.
      */
-    private void emitAttachment(dev.duzo.bluemap3d.api.ModelAttachment attachment, Vec3 pivot,
+    private void emitAttachment(ModelAttachment attachment, Vec3 pivot,
                                 TextureAtlas atlas, MeshBuilder mesh, float[] worldPos) {
         BlockModelSource source = null;
         List<ModelQuad> quads = List.of();
@@ -219,7 +264,44 @@ public final class VolumeMesher {
         }
     }
 
+    /**
+     * Puts a spin into the same space the attachment's vertices ended up in.
+     *
+     * <p>The three components take different routes through the attachment transform, and
+     * getting any of them wrong is invisible until something is placed off-centre:
+     * a pivot is a point, an axle is a direction, and a radius is a length.
+     */
+    private static BakedMesh.SpinNode nodeFor(ModelAttachment attachment, Vec3 volumePivot,
+                                              int indexStart, int indexCount) {
+        ModelAttachment.Spin spin = attachment.spin();
+        Matrix4f matrix = attachment.transform();
+
+        // Read into scratch vectors. A record accessor hands back the stored reference and
+        // the compact constructor only copies on the way in, so transforming in place would
+        // permanently mutate the attachment - fine on a first bake, wrong on every re-bake
+        // after it, and re-baking is routine.
+        Vector3f p = new Vector3f(spin.pivot()).mul(1f / 16f);
+        matrix.transformPosition(p);
+        float[] pivot = {
+                (float) (p.x + attachment.at().getX() - volumePivot.x),
+                (float) (p.y + attachment.at().getY() - volumePivot.y),
+                (float) (p.z + attachment.at().getZ() - volumePivot.z)};
+
+        // Direction, not position: a translated attachment must not tilt its own axle.
+        Vector3f a = matrix.transformDirection(new Vector3f(spin.axis())).normalize();
+
+        Vector3f scale = matrix.getScale(new Vector3f());
+        float s = Math.max(scale.x, Math.max(scale.y, scale.z));
+        if (Math.abs(scale.x - scale.y) > 1e-4f || Math.abs(scale.y - scale.z) > 1e-4f) {
+            LOGGER.warn("Spinning attachment {} has a non-uniform scale; one radius cannot "
+                    + "describe it, using the largest component", attachment.model());
+        }
+        return new BakedMesh.SpinNode(indexStart, indexCount, pivot,
+                new float[]{a.x, a.y, a.z}, spin.radius() / 16f * s);
+    }
+
     private static BakedMesh empty() {
-        return new BakedMesh(new float[0], new float[0], new byte[0], new int[0], null, 0);
+        return new BakedMesh(new float[0], new float[0], new byte[0], new int[0], null, 0,
+                0, List.of());
     }
 }

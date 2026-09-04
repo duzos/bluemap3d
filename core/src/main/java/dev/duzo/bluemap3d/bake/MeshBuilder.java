@@ -1,6 +1,7 @@
 package dev.duzo.bluemap3d.bake;
 
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 /**
  * Growable accumulator for {@link BakedMesh} data.
@@ -69,14 +70,24 @@ final class MeshBuilder {
         return vertexCount;
     }
 
+    /** Indices emitted so far. Node ranges in the mesh format are index ranges. */
+    int indexCount() {
+        return indexCount;
+    }
+
     boolean isEmpty() {
         return quadCount == 0;
     }
 
     /**
      * Builds the atlas, rewrites every uv into it, and returns the finished mesh.
+     *
+     * @param staticIndexCount indices before any spinning attachment, or {@code indexCount()}
+     *                         when the mesh has no nodes
+     * @param nodes            the spinning parts, in the order they were emitted
      */
-    BakedMesh build(TextureAtlas atlas, int sourceBlocks) {
+    BakedMesh build(TextureAtlas atlas, int sourceBlocks, int staticIndexCount,
+                    java.util.List<BakedMesh.SpinNode> nodes) {
         BufferedImage image = atlas.build();
 
         float[] scratchIn = new float[8];
@@ -94,7 +105,9 @@ final class MeshBuilder {
                 trim(colors, vertexCount * 3),
                 trim(indices, indexCount),
                 image,
-                sourceBlocks);
+                sourceBlocks,
+                staticIndexCount,
+                List.copyOf(nodes));
     }
 
     private static float[] ensure(float[] a, int needed) {

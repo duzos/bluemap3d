@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
  * <pre>
  *   offset  type          field
  *   0       char[4]       magic "BM3D"
- *   4       u32           format version (1)
+ *   4       u32           format version (2)
  *   8       u32           vertex count
  *   12      u32           index count
  *   16      u32           atlas url length in bytes
@@ -30,13 +30,28 @@ import java.nio.charset.StandardCharsets;
  *   ...     f32[v * 3]    positions, block units relative to the pivot
  *   ...     f32[v * 2]    uvs, normalised into the atlas
  *   ...     u32[i]        indices
- *   ...     u8[v * 3]     vertex colours, RGB
+ *   ...     u8[v * 3]     vertex colours, RGB, zero-padded to a 4-byte boundary
+ *   ...     u32           static index count: the parent's draw range is [0, this)
+ *   ...     u32           node count
+ *   ...     node[]        one per spinning part, in draw order:
+ *                           u32     index start
+ *                           u32     index count
+ *                           f32[3]  pivot, block units relative to the object pivot
+ *                           f32[3]  axis, normalised
+ *                           f32     radius, block units
  * </pre>
+ *
+ * <p>The colour block is padded to a 4-byte boundary. It is the only unpadded array in the
+ * file, and in v1 nothing followed it so that never mattered. It happens to be aligned
+ * today only because MeshBuilder.quad is the sole writer and always appends four
+ * vertices at a time. The trailer makes that invariant load-bearing, and a
+ * Float32Array cannot be wrapped around a non-multiple-of-4 offset, so pad rather than
+ * relying on it.
  */
 public final class Bm3dWriter {
 
     /** Current format version. Bumped only on an incompatible layout change. */
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
     private static final byte[] MAGIC = {'B', 'M', '3', 'D'};
 
@@ -55,11 +70,17 @@ public final class Bm3dWriter {
         int urlPadded = (url.length + 3) & ~3;
 
         int vertices = mesh.vertexCount();
+        int colorsPadded = (mesh.colors().length + 3) & ~3;
+        // 4 words per node: index start, index count, node count is separate, plus 3 + 3 + 1
+        // floats for pivot, axis and radius.
+        int nodesSize = mesh.nodes().size() * (4 * 2 + 4 * 7);
+
         int size = 20 + urlPadded
                 + vertices * 3 * 4
                 + vertices * 2 * 4
                 + mesh.indices().length * 4
-                + vertices * 3;
+                + colorsPadded
+                + 4 + 4 + nodesSize;
 
         ByteBuffer buf = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN);
         buf.put(MAGIC);
@@ -82,6 +103,23 @@ public final class Bm3dWriter {
             buf.putInt(i);
         }
         buf.put(mesh.colors());
+        for (int i = mesh.colors().length; i < colorsPadded; i++) {
+            buf.put((byte) 0);
+        }
+
+        buf.putInt(mesh.staticIndexCount());
+        buf.putInt(mesh.nodes().size());
+        for (BakedMesh.SpinNode node : mesh.nodes()) {
+            buf.putInt(node.indexStart());
+            buf.putInt(node.indexCount());
+            for (float f : node.pivot()) {
+                buf.putFloat(f);
+            }
+            for (float f : node.axis()) {
+                buf.putFloat(f);
+            }
+            buf.putFloat(node.radius());
+        }
 
         return buf.array();
     }

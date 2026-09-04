@@ -15,6 +15,9 @@ public final class Config {
     /** Hard ceiling on the blocks in one object, so one absurd ship cannot stall a tick. */
     public static final ModConfigSpec.IntValue MAX_BLOCKS_PER_OBJECT;
 
+    /** Ceiling on the independently turning parts one object may have. */
+    public static final ModConfigSpec.IntValue MAX_SPIN_NODES_PER_OBJECT;
+
     /** Minimum seconds between forcing a viewer's browser to re-download terrain tiles. */
     public static final ModConfigSpec.IntValue TILE_RELOAD_MIN_SECONDS;
 
@@ -57,6 +60,14 @@ public final class Config {
         MAX_BLOCKS_PER_OBJECT = builder
                 .comment("Refuse to mesh any single object larger than this many blocks.")
                 .defineInRange("maxBlocksPerObject", 20000, 1, 1_000_000);
+
+        MAX_SPIN_NODES_PER_OBJECT = builder
+                .comment("Ceiling on the number of independently turning parts one object",
+                        "may have. Each one is an extra draw call in every viewer's browser.",
+                        "",
+                        "Going over the limit does not lose geometry: the extra parts are",
+                        "drawn in place like any other attachment, they simply do not turn.")
+                .defineInRange("maxSpinNodesPerObject", 32, 0, 1024);
 
         TILE_RELOAD_MIN_SECONDS = builder
                 .comment("Minimum seconds between telling a viewer's browser to re-download",
