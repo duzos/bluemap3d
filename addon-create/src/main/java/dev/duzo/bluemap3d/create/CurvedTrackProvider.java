@@ -329,6 +329,27 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * carry a diagonal or ascending shape, so keying on an edge-level anchor the way a curve
      * is keyed on {@code bePositions.getFirst()} could file a block under a cell far from
      * where it is drawn.
+     *
+     * <p>A sampled point can land exactly on a block corner rather than inside a block: a
+     * node's world position is a block corner, not a block centre, so the endpoints (and any
+     * step that lands back on an integral X/Z) sit where up to four blocks meet in the
+     * horizontal plane. {@link BlockPos#containing} floors, which arbitrarily picks one of
+     * those four, and for a diagonal run the floored block is consistently the one with no
+     * track in it while the real piece is one of the other three. So every candidate touching
+     * the sampled point is tried, not just the floored one - see {@link #candidateColumns}.
+     * This is safe by construction: a candidate is only kept if it passes every filter already
+     * applied to the floored guess (chunk loaded, is a {@link TrackBlock}, has {@code SHAPE},
+     * shape is OBJ-modelled), so widening the search can only add blocks this mod must already
+     * draw, never a false positive, and the {@link Map} keyed by {@link BlockPos} means finding
+     * the same block from two edges (or two candidates of the same step) cannot double-count.
+     *
+     * <p>Y is not widened the same way. The doubled-then-halved X/Z encoding is what puts a
+     * node on a shared corner between blocks; {@code yOffsetPixels} is a separate, independent
+     * sub-block height carried alongside the block-space Y (see the comment below on
+     * {@code getLocation()}), not a doubling scheme that can round a node onto the boundary
+     * between the block it belongs to and the one below or above it. An ascending run's Y
+     * still only ever picks out the one block layer the track piece actually occupies, so
+     * there is no vertical corner-ambiguity for {@link BlockPos#containing} to get wrong here.
      */
     private static Map<Long, Map<BlockPos, BlockState>> collectTrackBlocks(
             ServerLevel level, List<TrackEdge> edges, int gridSize) {
@@ -346,27 +367,49 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
                     Math.max(Math.abs(b.y - a.y), Math.abs(b.z - a.z))));
             for (int i = 0; i <= steps; i++) {
                 double t = steps == 0 ? 0d : (double) i / steps;
-                BlockPos pos = BlockPos.containing(
-                        a.x + (b.x - a.x) * t,
-                        a.y + (b.y - a.y) * t,
-                        a.z + (b.z - a.z) * t);
-                if (!level.hasChunkAt(pos)) {
-                    // Do not force-load or generate terrain just to check for track. See
-                    // the loaded-chunk guard note in this method's javadoc.
-                    continue;
+                double x = a.x + (b.x - a.x) * t;
+                double y = a.y + (b.y - a.y) * t;
+                double z = a.z + (b.z - a.z) * t;
+                int floorY = (int) Math.floor(y);
+                for (int candidateX : candidateColumns(x)) {
+                    for (int candidateZ : candidateColumns(z)) {
+                        BlockPos pos = new BlockPos(candidateX, floorY, candidateZ);
+                        if (!level.hasChunkAt(pos)) {
+                            // Do not force-load or generate terrain just to check for track.
+                            // See the loaded-chunk guard note in this method's javadoc.
+                            continue;
+                        }
+                        BlockState state = level.getBlockState(pos);
+                        if (!(state.getBlock() instanceof TrackBlock)
+                                || !state.hasProperty(TrackBlock.SHAPE)) {
+                            continue;
+                        }
+                        if (!OBJ_MODELLED_SHAPES.contains(state.getValue(TrackBlock.SHAPE))) {
+                            continue;
+                        }
+                        long cellKey = cellKeyOf(pos, gridSize);
+                        byCell.computeIfAbsent(cellKey, k -> new HashMap<>())
+                                .put(pos.immutable(), state);
+                    }
                 }
-                BlockState state = level.getBlockState(pos);
-                if (!(state.getBlock() instanceof TrackBlock) || !state.hasProperty(TrackBlock.SHAPE)) {
-                    continue;
-                }
-                if (!OBJ_MODELLED_SHAPES.contains(state.getValue(TrackBlock.SHAPE))) {
-                    continue;
-                }
-                long cellKey = cellKeyOf(pos, gridSize);
-                byCell.computeIfAbsent(cellKey, k -> new HashMap<>()).put(pos.immutable(), state);
             }
         }
         return byCell;
+    }
+
+    /**
+     * Every block column (a single X or Z coordinate) that touches a sampled point on that
+     * axis. Normally that is just the floored coordinate, the block the point falls inside of.
+     * When the coordinate is itself an integer the point sits exactly on the boundary between
+     * that block and the one before it, so both are candidates - see the corner note on
+     * {@link #collectTrackBlocks}.
+     */
+    private static int[] candidateColumns(double coordinate) {
+        int floor = (int) Math.floor(coordinate);
+        if (coordinate == floor) {
+            return new int[] {floor, floor - 1};
+        }
+        return new int[] {floor};
     }
 
     // ------------------------------------------------------------------------------------
