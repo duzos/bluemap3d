@@ -8,6 +8,7 @@ import dev.duzo.bluemap3d.api.ModelAttachment;
 import dev.duzo.bluemap3d.api.SceneObject;
 import dev.duzo.bluemap3d.api.SceneObjectProvider;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
@@ -177,6 +178,21 @@ public final class ContraptionProvider implements SceneObjectProvider {
     private static final Vector3f WHEEL_AXIS = new Vector3f(1f, 0f, 0f);
 
     /**
+     * Create's own bogey style, and the only one whose parts this addon can place.
+     *
+     * <p>A style's geometry is not data: it lives in a client-side renderer registered in
+     * Java, so there is nothing on a server to read for any style but this one, whose
+     * model names are hardcoded above. A bogey of any other style therefore gets no parts
+     * at all rather than standard ones, because drawing Create's frame and wheels onto
+     * another mod's bogey is worse than drawing nothing: it is confidently wrong, and it
+     * hides the fact that the style is unsupported.
+     *
+     * <p>Supporting another style means adding its model names here, which needs that
+     * mod on the classpath or its assets read by hand.
+     */
+    private static final String STANDARD_BOGEY_STYLE = "create:standard";
+
+    /**
      * Entity classes whose rotation could not be sampled, so it is reported once each
      * rather than every interval for as long as the contraption exists.
      */
@@ -263,10 +279,14 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // states at different positions cancel each other out, and any change with an
             // even number of matching blocks - a pair of doors opening - is invisible.
             version ^= mix(mix(FNV_OFFSET, pos.asLong()), Block.getId(state));
-            // Not folded into the version separately: a bogey's attachments are derived
-            // entirely from its position and block state, both already folded in above, so
-            // there is nothing about them that could change independently of the mesh.
-            addBogeyAttachments(pos, state, attachments);
+            // The bogey style is folded in as well as the block state. It lives in the
+            // block entity nbt rather than the blockstate, so unlike everything else about
+            // an attachment it can change without the state changing - a wrenched bogey
+            // keeps its block and swaps its style, and without this the carriage would
+            // keep whatever geometry it was first baked with.
+            version ^= mix(mix(FNV_OFFSET, pos.asLong()), bogeyStyleOf(entry.getValue()).hashCode());
+            addBogeyAttachments(pos, entry.getValue(), attachments);
+            addBogeyAttachments(pos, entry.getValue(), attachments);
         }
         version = mix(version, source.size());
 
@@ -375,7 +395,27 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * <p>A small bogey gets two spinning attachments, one per axle; a large bogey gets one -
      * matching how many times Create's own renderer places {@code bogey_wheel} for each.
      */
-    private static void addBogeyAttachments(BlockPos pos, BlockState state, List<ModelAttachment> out) {
+    /**
+     * The bogey style at this block, or Create's standard style when it says nothing.
+     *
+     * <p>Create keeps a bogey's style in its block entity rather than its block state, as
+     * a resource location under {@code BogeyData/BogeyStyle}, and a contraption carries
+     * that nbt along with the block. Reading it is the only way to tell a standard bogey
+     * from one belonging to another style or another mod.
+     */
+    private static String bogeyStyleOf(StructureTemplate.StructureBlockInfo info) {
+        CompoundTag nbt = info.nbt();
+        if (nbt == null) {
+            return STANDARD_BOGEY_STYLE;
+        }
+        CompoundTag data = nbt.getCompound("BogeyData");
+        String style = data.getString("BogeyStyle");
+        return style.isEmpty() ? STANDARD_BOGEY_STYLE : style;
+    }
+
+    private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
+                                            List<ModelAttachment> out) {
+        BlockState state = info.state();
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         boolean small = SMALL_BOGEY.equals(id);
         boolean large = LARGE_BOGEY.equals(id);
@@ -388,6 +428,12 @@ public final class ContraptionProvider implements SceneObjectProvider {
             return;
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
+
+        if (!STANDARD_BOGEY_STYLE.equals(bogeyStyleOf(info))) {
+            // Another style, so its frame and wheels are geometry this addon has no way to
+            // name. The block's own model still draws; it simply gets nothing added.
+            return;
+        }
 
         out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(),
                 bogeyTransform(axis, BOGEY_DROP + FRAME_HEIGHT, 0f)));
