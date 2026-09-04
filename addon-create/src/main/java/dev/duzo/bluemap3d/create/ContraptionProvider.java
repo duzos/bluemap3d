@@ -143,9 +143,20 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // Both are in block units, in the model's own un-rotated (axis=z) frame - the same
     // frame bogey_frame.obj and bogey_wheel.obj are authored in. If Create ever moves its
     // wheels, this is the place that has to follow; there is no live value to re-read.
-    private static final float SMALL_AXLE_HEIGHT = 0.75f;
+    // Create's own figures are measured from a different origin than bogeyTransform's
+    // block centre, so taken as written they hang the whole bogey in mid air above the
+    // block. BOGEY_DROP is the correction, and it is applied to the frame and to every
+    // axle together: they are one physical object, and giving them independent offsets
+    // once already let the wheels move down while the frame stayed behind.
+    // BOGEY_DROP moves the whole assembly, frame and axles together. FRAME_HEIGHT is the
+    // frame's own offset within it, which is a real relationship rather than a correction:
+    // the frame body sits above the axle line it rides on, and zeroing it leaves the frame
+    // floating half a block clear of its own wheels.
+    private static final float BOGEY_DROP = -0.75f;
+    private static final float FRAME_HEIGHT = -0.5f;
+    private static final float SMALL_AXLE_HEIGHT = 0f;
     private static final float SMALL_AXLE_SPACING = 1.0f;
-    private static final float LARGE_AXLE_HEIGHT = 1.0f;
+    private static final float LARGE_AXLE_HEIGHT = 0f;
 
     // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
     // itself (a normal, both-sides Block class, not the renderer) exposes
@@ -378,13 +389,14 @@ public final class ContraptionProvider implements SceneObjectProvider {
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
 
-        out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(), bogeyTransform(axis, 0f, 0f)));
+        out.add(new ModelAttachment(pos, BOGEY_FRAME_MODEL, Map.of(),
+                bogeyTransform(axis, BOGEY_DROP + FRAME_HEIGHT, 0f)));
 
         float height = small ? SMALL_AXLE_HEIGHT : LARGE_AXLE_HEIGHT;
         float radius = small ? WHEEL_RADIUS_SMALL : WHEEL_RADIUS_LARGE;
         float[] axleOffsets = small ? new float[]{SMALL_AXLE_SPACING, -SMALL_AXLE_SPACING} : new float[]{0f};
         for (float axleOffset : axleOffsets) {
-            Matrix4f transform = bogeyTransform(axis, height, axleOffset);
+            Matrix4f transform = bogeyTransform(axis, BOGEY_DROP + height, axleOffset);
             ModelAttachment.Spin spin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, radius);
             out.add(new ModelAttachment(pos, BOGEY_WHEEL_MODEL, Map.of(), transform, spin));
         }
