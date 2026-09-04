@@ -37,11 +37,11 @@ import java.util.Objects;
  *                  where they belong, which is most of them. It exists for item models,
  *                  which are authored facing the viewer and have to be rotated into place -
  *                  CC positions a turtle's tool with exactly such a matrix.
- * @param spin      set when the part turns as the object travels, null when it is baked in
- *                  place. See {@link Spin}
+ * @param motion    set when the part moves as the object travels, null when it is baked in
+ *                  place. See {@link Motion}
  */
 public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, String> textures,
-                              org.joml.Matrix4f transform, Spin spin) {
+                              org.joml.Matrix4f transform, Motion motion) {
 
     public ModelAttachment {
         Objects.requireNonNull(at, "at");
@@ -55,19 +55,30 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
         this(at, model, textures, null, null);
     }
 
-    /** A static attachment: no spin. */
+    /** A static attachment: no motion. */
     public ModelAttachment(BlockPos at, ResourceLocation model, Map<String, String> textures,
                            org.joml.Matrix4f transform) {
         this(at, model, textures, transform, null);
     }
 
     /**
-     * A part that turns as its object travels, rather than one baked in place.
+     * How a part moves as its object travels, rather than sitting baked in place.
      *
-     * <p>Rotation is derived in the browser from how far the object moved, not published
-     * as an angle. An angle sampled at {@code publishIntervalTicks} would alias hopelessly:
-     * the default is two samples a second and a wheel turns several times a second. A
-     * distance is immune to that, because it is integrated rather than sampled.
+     * <p>Every kind is driven by the same value: how far the object itself has moved,
+     * accumulated in the browser as a per-node odometer. Never an angle or a pose sampled
+     * at {@code publishIntervalTicks} - that would alias hopelessly, because the default
+     * publish rate is a couple of samples a second and a wheel turns several times a
+     * second. A distance is immune to that, because it is integrated rather than sampled.
+     *
+     * <p>A sealed interface rather than one record with a kind field and a pile of
+     * kind-specific parameters, because the kinds do not share a parameter shape: a spin
+     * needs no period, an oscillation needs no pivot. Each kind states only what it uses.
+     */
+    public sealed interface Motion permits Spin, Oscillate, Orbit {
+    }
+
+    /**
+     * A part that turns about a fixed axis as its object travels - a wheel.
      *
      * @param pivot  the point the part turns about, in the model's own 0..16 space
      * @param axis   the axle direction, in the model's own 0..16 space. Normalised on
@@ -76,7 +87,7 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      *               turns the part by {@code travel / radius} radians, so a radius that
      *               does not match what is drawn makes the part slip against the ground
      */
-    public record Spin(Vector3f pivot, Vector3f axis, float radius) {
+    public record Spin(Vector3f pivot, Vector3f axis, float radius) implements Motion {
         public Spin {
             Objects.requireNonNull(pivot, "pivot");
             Objects.requireNonNull(axis, "axis");
@@ -94,6 +105,73 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
             // Phrased as a negated comparison so NaN is rejected too.
             if (!(radius > 0)) {
                 throw new IllegalArgumentException("radius must be positive, was " + radius);
+            }
+        }
+    }
+
+    /**
+     * A part that slides back and forth along a fixed axis as its object travels - a
+     * piston rod.
+     *
+     * <p>No pivot: the offset is added straight to the part's baked position, in the
+     * declared direction, so there is nothing to turn about.
+     *
+     * @param axis      the direction the part slides in, in the model's own 0..16 space.
+     *                  Normalised on construction
+     * @param amplitude how far the part slides from its baked position, in the model's
+     *                  own 0..16 space. The browser offsets it by
+     *                  {@code amplitude * sin(travel / period)}
+     * @param period    how much travel one full back-and-forth cycle takes, in blocks.
+     *                  A short period means a fast piston
+     */
+    public record Oscillate(Vector3f axis, float amplitude, float period) implements Motion {
+        public Oscillate {
+            Objects.requireNonNull(axis, "axis");
+            // Same zero-axis guard as Spin, and for the same reason.
+            if (axis.lengthSquared() < 1.0e-20f) {
+                throw new IllegalArgumentException("axis must be non-zero");
+            }
+            axis = new Vector3f(axis).normalize();
+            if (!(amplitude > 0)) {
+                throw new IllegalArgumentException("amplitude must be positive, was " + amplitude);
+            }
+            if (!(period > 0)) {
+                throw new IllegalArgumentException("period must be positive, was " + period);
+            }
+        }
+    }
+
+    /**
+     * A part whose centre travels a circle about a pivot while its own orientation stays
+     * fixed - a bogey pin. Unlike {@link Spin}, the geometry never turns; only its
+     * position moves.
+     *
+     * <p>The browser places the part at {@code radius} from the pivot, at angle
+     * {@code travel / period}, measured in a plane perpendicular to {@code axis}. The
+     * part must be baked already offset from the pivot by {@code radius} in that plane's
+     * zero-angle direction (the browser's own axis-derived reference direction), the same
+     * way a {@link Spin}'s radius has to match what is actually drawn.
+     *
+     * @param pivot  the point the part orbits, in the model's own 0..16 space
+     * @param axis   the orbit's axis, in the model's own 0..16 space. Normalised on
+     *               construction
+     * @param radius the orbit's radius, in the model's own 0..16 space
+     * @param period how much travel one full orbit takes, in blocks
+     */
+    public record Orbit(Vector3f pivot, Vector3f axis, float radius, float period) implements Motion {
+        public Orbit {
+            Objects.requireNonNull(pivot, "pivot");
+            Objects.requireNonNull(axis, "axis");
+            if (axis.lengthSquared() < 1.0e-20f) {
+                throw new IllegalArgumentException("axis must be non-zero");
+            }
+            pivot = new Vector3f(pivot);
+            axis = new Vector3f(axis).normalize();
+            if (!(radius > 0)) {
+                throw new IllegalArgumentException("radius must be positive, was " + radius);
+            }
+            if (!(period > 0)) {
+                throw new IllegalArgumentException("period must be positive, was " + period);
             }
         }
     }

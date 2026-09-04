@@ -65,11 +65,12 @@ public final class Config {
                 .defineInRange("maxBlocksPerObject", 20000, 1, 1_000_000);
 
         MAX_SPIN_NODES_PER_OBJECT = builder
-                .comment("Ceiling on the number of independently turning parts one object",
-                        "may have. Each one is an extra draw call in every viewer's browser.",
+                .comment("Ceiling on the number of independently animated parts one object",
+                        "may have - turning, sliding or orbiting. Each one is an extra draw",
+                        "call in every viewer's browser.",
                         "",
                         "Going over the limit does not lose geometry: the extra parts are",
-                        "drawn in place like any other attachment, they simply do not turn.")
+                        "drawn in place like any other attachment, they simply do not move.")
                 .defineInRange("maxSpinNodesPerObject", 32, 0, 1024);
 
         MAX_ATTACHMENTS_PER_OBJECT = builder

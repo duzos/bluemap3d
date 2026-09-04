@@ -21,10 +21,10 @@ import java.util.List;
  * @param indices     3 per triangle
  * @param atlas       the texture every uv refers to
  * @param sourceBlocks how many blocks went in, for logging and limits
- * @param staticIndexCount indices before any spinning attachment was emitted. The browser
+ * @param staticIndexCount indices before any animated attachment was emitted. The browser
  *                         clamps the parent mesh's draw range to this, so a node's geometry
  *                         is drawn once, by the node, and never a second time by the parent
- * @param nodes            the parts of the mesh that the browser turns independently
+ * @param nodes            the parts of the mesh that the browser animates independently
  */
 public record BakedMesh(
         float[] positions,
@@ -34,16 +34,25 @@ public record BakedMesh(
         BufferedImage atlas,
         int sourceBlocks,
         int staticIndexCount,
-        List<SpinNode> nodes
+        List<Node> nodes
 ) {
+    /** {@link Node#kind()}: turns about {@code axis}, angle {@code travel / radius}. */
+    public static final int KIND_SPIN = 0;
+    /** {@link Node#kind()}: slides along {@code axis}, offset {@code radius * sin(travel / period)}. */
+    public static final int KIND_OSCILLATE = 1;
+    /** {@link Node#kind()}: orbits {@code pivot} at {@code radius}, angle {@code travel / period}. */
+    public static final int KIND_ORBIT = 2;
+
     /**
-     * A part of the mesh that the browser turns, rather than one baked in place.
+     * A part of the mesh that the browser animates, rather than one baked in place.
      *
      * <p>An index range rather than a vertex range because that is what three.js's
-     * {@code setDrawRange} takes.
+     * {@code setDrawRange} takes. {@code pivot} and {@code period} are unused by some
+     * kinds - see the {@code KIND_*} constants and {@link dev.duzo.bluemap3d.api.ModelAttachment.Motion}
+     * for what each kind actually reads.
      */
-    public record SpinNode(int indexStart, int indexCount, float[] pivot, float[] axis,
-                           float radius) {
+    public record Node(int kind, int indexStart, int indexCount, float[] pivot, float[] axis,
+                       float radius, float period) {
     }
 
     /** Number of vertices. */

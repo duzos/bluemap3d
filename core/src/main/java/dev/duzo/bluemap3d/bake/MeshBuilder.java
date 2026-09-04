@@ -82,12 +82,12 @@ final class MeshBuilder {
     /**
      * Builds the atlas, rewrites every uv into it, and returns the finished mesh.
      *
-     * @param staticIndexCount indices before any spinning attachment, or {@code indexCount()}
+     * @param staticIndexCount indices before any animated attachment, or {@code indexCount()}
      *                         when the mesh has no nodes
-     * @param nodes            the spinning parts, in the order they were emitted
+     * @param nodes            the animated parts, in the order they were emitted
      */
     BakedMesh build(TextureAtlas atlas, int sourceBlocks, int staticIndexCount,
-                    java.util.List<BakedMesh.SpinNode> nodes) {
+                    java.util.List<BakedMesh.Node> nodes) {
         BufferedImage image = atlas.build();
 
         float[] scratchIn = new float[8];

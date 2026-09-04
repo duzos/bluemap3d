@@ -158,28 +158,28 @@ public final class VolumeMesher {
         // Extra models the block states cannot describe: a turtle's modem, a sign's text.
         // Emitted into the same buffer and atlas, so they cost nothing extra at render time.
         //
-        // Static attachments first, then spinning ones, so that everything the browser
+        // Static attachments first, then animated ones, so that everything the browser
         // animates is one contiguous run at the end of the buffer. A BufferGeometry has
         // exactly one draw range, so that tail is the only shape in which the parent mesh
         // can say "draw everything except the parts my children draw". Fold these back
-        // into one loop and every spinning part renders twice, once stuck in place by the
-        // parent and once turning, z-fighting with itself.
+        // into one loop and every animated part renders twice, once stuck in place by the
+        // parent and once moving, z-fighting with itself.
         //
         // The cap is applied here, at the partition, and not while emitting. Demoting an
         // attachment after the static pass has closed would leave its geometry past
         // staticIndexCount with no node claiming it, so neither the parent nor any child
         // would draw it and it would vanish outright.
         List<ModelAttachment> staticAttachments = new ArrayList<>();
-        List<ModelAttachment> spinning = new ArrayList<>();
+        List<ModelAttachment> animated = new ArrayList<>();
         for (ModelAttachment attachment : allAttachments) {
-            (attachment.spin() == null ? staticAttachments : spinning).add(attachment);
+            (attachment.motion() == null ? staticAttachments : animated).add(attachment);
         }
         int cap = Config.MAX_SPIN_NODES_PER_OBJECT.get();
-        if (spinning.size() > cap) {
-            LOGGER.warn("{} spinning attachments exceeds maxSpinNodesPerObject ({}); "
-                    + "the excess is drawn in place instead", spinning.size(), cap);
-            staticAttachments.addAll(spinning.subList(cap, spinning.size()));
-            spinning = spinning.subList(0, cap);
+        if (animated.size() > cap) {
+            LOGGER.warn("{} animated attachments exceeds maxSpinNodesPerObject ({}); "
+                    + "the excess is drawn in place instead", animated.size(), cap);
+            staticAttachments.addAll(animated.subList(cap, animated.size()));
+            animated = animated.subList(0, cap);
         }
 
         for (ModelAttachment attachment : staticAttachments) {
@@ -187,8 +187,8 @@ public final class VolumeMesher {
         }
         int staticIndexCount = mesh.indexCount();
 
-        List<BakedMesh.SpinNode> nodes = new ArrayList<>(spinning.size());
-        for (ModelAttachment attachment : spinning) {
+        List<BakedMesh.Node> nodes = new ArrayList<>(animated.size());
+        for (ModelAttachment attachment : animated) {
             int start = mesh.indexCount();
             emitAttachment(attachment, pivot, atlas, mesh, worldPos);
             int count = mesh.indexCount() - start;
@@ -280,39 +280,68 @@ public final class VolumeMesher {
     }
 
     /**
-     * Puts a spin into the same space the attachment's vertices ended up in.
+     * Puts a motion into the same space the attachment's vertices ended up in.
      *
-     * <p>The three components take different routes through the attachment transform, and
+     * <p>The components take different routes through the attachment transform, and
      * getting any of them wrong is invisible until something is placed off-centre:
-     * a pivot is a point, an axle is a direction, and a radius is a length.
+     * a pivot is a point, an axis is a direction, and a radius is a length.
      */
-    private static BakedMesh.SpinNode nodeFor(ModelAttachment attachment, Vec3 volumePivot,
-                                              int indexStart, int indexCount) {
-        ModelAttachment.Spin spin = attachment.spin();
+    private static BakedMesh.Node nodeFor(ModelAttachment attachment, Vec3 volumePivot,
+                                          int indexStart, int indexCount) {
         Matrix4f matrix = attachment.transform();
-
-        // Read into scratch vectors. A record accessor hands back the stored reference and
-        // the compact constructor only copies on the way in, so transforming in place would
-        // permanently mutate the attachment - fine on a first bake, wrong on every re-bake
-        // after it, and re-baking is routine.
-        Vector3f p = new Vector3f(spin.pivot()).mul(1f / 16f);
-        matrix.transformPosition(p);
-        float[] pivot = {
-                (float) (p.x + attachment.at().getX() - volumePivot.x),
-                (float) (p.y + attachment.at().getY() - volumePivot.y),
-                (float) (p.z + attachment.at().getZ() - volumePivot.z)};
-
-        // Direction, not position: a translated attachment must not tilt its own axle.
-        Vector3f a = matrix.transformDirection(new Vector3f(spin.axis())).normalize();
 
         Vector3f scale = matrix.getScale(new Vector3f());
         float s = Math.max(scale.x, Math.max(scale.y, scale.z));
         if (Math.abs(scale.x - scale.y) > 1e-4f || Math.abs(scale.y - scale.z) > 1e-4f) {
-            LOGGER.warn("Spinning attachment {} has a non-uniform scale; one radius cannot "
+            LOGGER.warn("Animated attachment {} has a non-uniform scale; one radius cannot "
                     + "describe it, using the largest component", attachment.model());
         }
-        return new BakedMesh.SpinNode(indexStart, indexCount, pivot,
-                new float[]{a.x, a.y, a.z}, spin.radius() / 16f * s);
+
+        return switch (attachment.motion()) {
+            case ModelAttachment.Spin spin -> new BakedMesh.Node(
+                    BakedMesh.KIND_SPIN, indexStart, indexCount,
+                    pivotFor(spin.pivot(), matrix, attachment, volumePivot),
+                    axisFor(spin.axis(), matrix),
+                    spin.radius() / 16f * s, 0f);
+            case ModelAttachment.Oscillate oscillate -> new BakedMesh.Node(
+                    BakedMesh.KIND_OSCILLATE, indexStart, indexCount,
+                    // No pivot to orbit or turn about: the offset is added straight to
+                    // the baked position, so any wire value would do, and zero is the
+                    // one the browser's bounding-sphere maths reads most naturally.
+                    new float[]{0f, 0f, 0f},
+                    axisFor(oscillate.axis(), matrix),
+                    oscillate.amplitude() / 16f * s, oscillate.period());
+            case ModelAttachment.Orbit orbit -> new BakedMesh.Node(
+                    BakedMesh.KIND_ORBIT, indexStart, indexCount,
+                    pivotFor(orbit.pivot(), matrix, attachment, volumePivot),
+                    axisFor(orbit.axis(), matrix),
+                    orbit.radius() / 16f * s, orbit.period());
+        };
+    }
+
+    /**
+     * A model-space pivot, carried through the attachment's transform and into the same
+     * pivot-relative block-unit space the mesh's vertices ended up in.
+     */
+    private static float[] pivotFor(Vector3f modelSpacePivot, Matrix4f matrix,
+                                    ModelAttachment attachment, Vec3 volumePivot) {
+        // Read into a scratch vector. A record accessor hands back the stored reference
+        // and the compact constructor only copies on the way in, so transforming in place
+        // would permanently mutate the attachment - fine on a first bake, wrong on every
+        // re-bake after it, and re-baking is routine.
+        Vector3f p = new Vector3f(modelSpacePivot).mul(1f / 16f);
+        matrix.transformPosition(p);
+        return new float[]{
+                (float) (p.x + attachment.at().getX() - volumePivot.x),
+                (float) (p.y + attachment.at().getY() - volumePivot.y),
+                (float) (p.z + attachment.at().getZ() - volumePivot.z)};
+    }
+
+    /** A model-space direction, carried through the attachment's transform. */
+    private static float[] axisFor(Vector3f modelSpaceAxis, Matrix4f matrix) {
+        // Direction, not position: a translated attachment must not tilt its own axis.
+        Vector3f a = matrix.transformDirection(new Vector3f(modelSpaceAxis)).normalize();
+        return new float[]{a.x, a.y, a.z};
     }
 
     private static BakedMesh empty() {

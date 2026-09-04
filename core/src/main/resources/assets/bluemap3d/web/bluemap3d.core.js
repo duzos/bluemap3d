@@ -72,6 +72,12 @@
     var viewer = null;
     var root = null;
 
+    /* Node kinds, matching BakedMesh's KIND_* constants and the .bm3d trailer. All three
+     * are driven by the same odometer value; they differ only in what they do with it. */
+    var KIND_SPIN = 0;
+    var KIND_OSCILLATE = 1;
+    var KIND_ORBIT = 2;
+
     /* id -> { mesh, meshUrl, from, to, label } */
     var objects = Object.create(null);
     /* meshUrl -> Promise<{geometry, material}> */
@@ -457,10 +463,49 @@
 
         if (entry.nodeGroups) {
             for (var i = 0; i < entry.nodeGroups.length; i++) {
-                var angle = entry.odometers[i] + alpha * entry.segmentTravel[i];
-                entry.nodeGroups[i].quaternion.setFromAxisAngle(entry.nodes[i].axis, angle);
+                var node = entry.nodes[i];
+                var group = entry.nodeGroups[i];
+                var value = entry.odometers[i] + alpha * entry.segmentTravel[i];
+
+                if (node.kind === KIND_OSCILLATE) {
+                    /* No pivot to cancel: the offset is added straight to the baked
+                     * position along the declared axis. */
+                    var offset = node.period > 0 ? node.radius * Math.sin(value / node.period) : 0;
+                    group.position.set(
+                        node.axis.x * offset, node.axis.y * offset, node.axis.z * offset);
+                } else if (node.kind === KIND_ORBIT) {
+                    /* group.position is pivot plus the orbit offset; nodeMesh's own
+                     * position (set once, in replaceMesh) is -pivot, so the two cancel
+                     * and the part ends up displaced from its baked position by exactly
+                     * the orbit offset - never rotated, per KIND_ORBIT's contract. */
+                    var theta = node.period > 0 ? value / node.period : 0;
+                    var c = Math.cos(theta), s = Math.sin(theta);
+                    group.position.set(
+                        node.pivot.x + node.radius * (c * node.orbitU.x + s * node.orbitV.x),
+                        node.pivot.y + node.radius * (c * node.orbitU.y + s * node.orbitV.y),
+                        node.pivot.z + node.radius * (c * node.orbitU.z + s * node.orbitV.z)
+                    );
+                } else {
+                    group.quaternion.setFromAxisAngle(node.axis, value);
+                }
             }
         }
+    }
+
+    /**
+     * An arbitrary orthonormal basis (u, v) perpendicular to axis, used to give an orbit
+     * node a stable zero-angle direction. Picking the world axis least aligned with
+     * `axis` as the seed for the first cross product keeps this well-conditioned for
+     * every axis direction, including ones straight up - unlike rollTravel's roll
+     * direction below, an orbit has no "no meaningful direction" case to fall back on.
+     */
+    function perpendicularBasis(axis) {
+        var ax = Math.abs(axis.x), ay = Math.abs(axis.y), az = Math.abs(axis.z);
+        var seed = (ax <= ay && ax <= az) ? new THREE.Vector3(1, 0, 0)
+            : (ay <= az ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
+        var u = new THREE.Vector3().crossVectors(seed, axis).normalize();
+        var v = new THREE.Vector3().crossVectors(axis, u).normalize();
+        return {u: u, v: v};
     }
 
     var _scratch = null;
@@ -470,11 +515,16 @@
      * Travel of one node along its own rolling direction over one segment, projected
      * from the object's displacement in that segment and expressed in the node's local
      * (object-space) frame.
+     *
+     * Shared by every node kind, not just spin: an oscillation or an orbit is driven by
+     * the same projection of the object's own displacement onto its node's axis, and
+     * differs only in what nodeSegmentTravel and writeTransform do with the result
+     * afterwards.
      */
     function rollTravel(axis, delta, fromRot) {
         var roll = axis.clone().cross(UP);
         if (roll.lengthSq() < 0.01) {
-            /* axle within ~6 degrees of vertical: no meaningful rolling direction, and
+            /* axis within ~6 degrees of vertical: no meaningful rolling direction, and
              * the normalised cross product would be dominated by float error and give a
              * plausible but random one. */
             return 0;
@@ -490,14 +540,17 @@
     var MAX_PLAUSIBLE_BLOCKS_PER_SECOND = 40;
 
     /**
-     * The angular travel (radians) of one node over the segment (from -> to), computed
-     * once here from the segment's starting orientation.
+     * One node's contribution over the segment (from -> to), computed once here from the
+     * segment's starting orientation rather than per frame from the interpolated one.
+     * writeTransform slerps between from.rot and to.rot, so a per-frame recomputation
+     * would make odometer + alpha * travel non-monotonic in alpha and the part would
+     * visibly hunt back and forth through a curve.
      *
-     * Computed once here, from the segment's starting orientation, rather than per
-     * frame from the interpolated one. writeTransform slerps between from.rot and
-     * to.rot, so a per-frame recomputation would make odometer + alpha * travel
-     * non-monotonic in alpha and the wheel would visibly hunt back and forth through
-     * a curve.
+     * For a spin this is already the angle (radians): dividing by radius here, once per
+     * segment, is what the odometer has always accumulated. Oscillation and orbit have
+     * no such fixed conversion baked in - period can change meaning per node in a way
+     * radius never needed to - so they get the raw travel (blocks) and convert it
+     * themselves at render time.
      */
     function nodeSegmentTravel(node, from, to) {
         var fromRot = _scratch.set(from.rot[0], from.rot[1], from.rot[2], from.rot[3]);
@@ -515,6 +568,9 @@
             return 0;
         }
 
+        if (node.kind !== KIND_SPIN) {
+            return travel;
+        }
         return node.radius > 0 ? travel / node.radius : 0;
     }
 
@@ -711,7 +767,7 @@
      * over the buffer with no copying:
      *
      *   0   char[4]     "BM3D"
-     *   4   u32         format version (1 or 2)
+     *   4   u32         format version (1, 2 or 3)
      *   8   u32         vertex count
      *   12  u32         index count
      *   16  u32         atlas url byte length
@@ -721,16 +777,20 @@
      *       u32[i]      indices
      *       u8[v*3]     vertex colours, RGB, zero-padded to a 4-byte boundary
      *
-     * v2 only, immediately after the colour padding:
+     * v2 and v3 only, immediately after the colour padding:
      *
      *       u32         static index count: the parent's draw range is [0, this)
      *       u32         node count
-     *       node[]      one per spinning part, in draw order:
+     *       node[]      one per animated part, in draw order:
+     *                     u32     kind (v3 only; a v2 node is always kind 0), see the
+     *                             KIND_* constants below
      *                     u32     index start
      *                     u32     index count
      *                     f32[3]  pivot, block units relative to the object pivot
      *                     f32[3]  axis, normalised
      *                     f32     radius, block units
+     *                     f32     period, blocks of travel per cycle (v3 only; a v2
+     *                             node has none, and kind 0 ignores it anyway)
      */
     function decode(buffer) {
         var view = new DataView(buffer);
@@ -740,7 +800,7 @@
             throw new Error("not a .bm3d file");
         }
         var version = view.getUint32(4, true);
-        if (version !== 1 && version !== 2) {
+        if (version !== 1 && version !== 2 && version !== 3) {
             throw new Error("unsupported .bm3d version " + version);
         }
 
@@ -772,6 +832,13 @@
             var nodeCount = view.getUint32(offset, true);
             offset += 4;
             for (var i = 0; i < nodeCount; i++) {
+                // A v2 file has no kind or period field at all - every one of its nodes
+                // was implicitly a spin, and had no period to read.
+                var kind = KIND_SPIN;
+                if (version >= 3) {
+                    kind = view.getUint32(offset, true);
+                    offset += 4;
+                }
                 var indexStart = view.getUint32(offset, true);
                 offset += 4;
                 var nodeIndexCount = view.getUint32(offset, true);
@@ -790,13 +857,30 @@
                 offset += 12;
                 var radius = view.getFloat32(offset, true);
                 offset += 4;
-                nodes.push({
+                var period = 0;
+                if (version >= 3) {
+                    period = view.getFloat32(offset, true);
+                    offset += 4;
+                }
+
+                var node = {
+                    kind: kind,
                     indexStart: indexStart,
                     indexCount: nodeIndexCount,
                     pivot: pivot,
                     axis: axis,
-                    radius: radius
-                });
+                    radius: radius,
+                    period: period
+                };
+                if (kind === KIND_ORBIT) {
+                    /* Computed once per node rather than per frame: the axis never
+                     * changes for the node's lifetime, and this is called once per
+                     * cached mesh resource, shared by every object using it. */
+                    var basis = perpendicularBasis(axis);
+                    node.orbitU = basis.u;
+                    node.orbitV = basis.v;
+                }
+                nodes.push(node);
             }
         }
 
