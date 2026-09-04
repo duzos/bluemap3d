@@ -121,7 +121,9 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      * @param amplitude how far the part slides from its baked position, in the model's
      *                  own 0..16 space. The browser offsets it by
      *                  {@code amplitude * sin(travel / period)}
-     * @param period    how much travel one full back-and-forth cycle takes, in blocks.
+     * @param period    the divisor in that sine, in the model's own 0..16 space (converted
+     *                  the same way amplitude is). A full back-and-forth cycle takes
+     *                  {@code 2 * PI * period} of travel, not {@code period} itself.
      *                  A short period means a fast piston
      */
     public record Oscillate(Vector3f axis, float amplitude, float period) implements Motion {
@@ -156,7 +158,9 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      * @param axis   the orbit's axis, in the model's own 0..16 space. Normalised on
      *               construction
      * @param radius the orbit's radius, in the model's own 0..16 space
-     * @param period how much travel one full orbit takes, in blocks
+     * @param period the divisor in {@code travel / period} above, in the model's own
+     *               0..16 space (converted the same way radius is). A full orbit takes
+     *               {@code 2 * PI * period} of travel, not {@code period} itself.
      */
     public record Orbit(Vector3f pivot, Vector3f axis, float radius, float period) implements Motion {
         public Orbit {

@@ -310,12 +310,18 @@ public final class VolumeMesher {
                     // one the browser's bounding-sphere maths reads most naturally.
                     new float[]{0f, 0f, 0f},
                     axisFor(oscillate.axis(), matrix),
-                    oscillate.amplitude() / 16f * s, oscillate.period(), 0f);
+                    // period lives in the same model-space (0..16) units as amplitude and
+                    // radius, so it is scaled here the same way - this is the one place
+                    // that conversion happens, and every caller passes period in that
+                    // space regardless of what unit its own source figure started in.
+                    oscillate.amplitude() / 16f * s, oscillate.period() / 16f * s, 0f);
             case ModelAttachment.Orbit orbit -> new BakedMesh.Node(
                     BakedMesh.KIND_ORBIT, indexStart, indexCount,
                     pivotFor(orbit.pivot(), matrix, attachment, volumePivot),
                     axisFor(orbit.axis(), matrix),
-                    orbit.radius() / 16f * s, orbit.period(), 0f);
+                    // See the Oscillate case above: period is scaled the same way as
+                    // radius here, not left raw.
+                    orbit.radius() / 16f * s, orbit.period() / 16f * s, 0f);
             case ModelAttachment.Rate rate -> new BakedMesh.Node(
                     BakedMesh.KIND_RATE, indexStart, indexCount,
                     pivotFor(rate.pivot(), matrix, attachment, volumePivot),
