@@ -29,3 +29,7 @@ dev-harness/libs
 
 # docs is scratch space - images, notes, anything not part of the repo
 docs
+
+# Scratch: SDD workspace, and stray run logs
+.superpowers
+*.log
