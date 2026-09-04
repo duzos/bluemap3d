@@ -469,7 +469,11 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         Vec3 prevUp = null;
         Vec3 prevFwd = null;
 
+        Vec3 firstPos = null;
+        Vec3 lastPos = null;
+        int segmentCount = 0;
         for (BezierConnection.Segment segment : curve) {
+            segmentCount++;
             // segment.position is relative to curveOrigin (bePositions.getFirst()), not
             // world-absolute - see the class header - so every use of it below needs
             // curveOrigin added back in before it means anything as a world position.
@@ -500,10 +504,19 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
                             scaleZ, attachments, bounds);
                 }
             }
+            if (firstPos == null) {
+                firstPos = pos;
+            }
+            lastPos = pos;
             prevPos = pos;
             prevRight = right;
             prevUp = up;
             prevFwd = fwd;
+        }
+        if (CreateConfig.VERBOSE.get()) {
+            LOGGER.info("  curve {} -> {}: {} segment(s), geometry spans {} .. {}",
+                    curve.bePositions.getFirst(), curve.bePositions.getSecond(),
+                    segmentCount, firstPos, lastPos);
         }
     }
 
