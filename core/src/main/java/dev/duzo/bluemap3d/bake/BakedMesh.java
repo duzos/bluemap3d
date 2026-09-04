@@ -42,17 +42,20 @@ public record BakedMesh(
     public static final int KIND_OSCILLATE = 1;
     /** {@link Node#kind()}: orbits {@code pivot} at {@code radius}, angle {@code travel / period}. */
     public static final int KIND_ORBIT = 2;
+    /** {@link Node#kind()}: turns about {@code axis} at a constant {@code rate}, independent of travel. */
+    public static final int KIND_RATE = 3;
 
     /**
      * A part of the mesh that the browser animates, rather than one baked in place.
      *
      * <p>An index range rather than a vertex range because that is what three.js's
-     * {@code setDrawRange} takes. {@code pivot} and {@code period} are unused by some
-     * kinds - see the {@code KIND_*} constants and {@link dev.duzo.bluemap3d.api.ModelAttachment.Motion}
-     * for what each kind actually reads.
+     * {@code setDrawRange} takes. {@code pivot}, {@code period} and {@code rate} are
+     * unused by some kinds - see the {@code KIND_*} constants and
+     * {@link dev.duzo.bluemap3d.api.ModelAttachment.Motion} for what each kind actually
+     * reads.
      */
     public record Node(int kind, int indexStart, int indexCount, float[] pivot, float[] axis,
-                       float radius, float period) {
+                       float radius, float period, float rate) {
     }
 
     /** Number of vertices. */

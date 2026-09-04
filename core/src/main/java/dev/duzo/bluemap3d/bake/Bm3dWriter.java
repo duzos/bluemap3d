@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
  * <pre>
  *   offset  type          field
  *   0       char[4]       magic "BM3D"
- *   4       u32           format version (3)
+ *   4       u32           format version (4)
  *   8       u32           vertex count
  *   12      u32           index count
  *   16      u32           atlas url length in bytes
@@ -43,12 +43,16 @@ import java.nio.charset.StandardCharsets;
  *                           f32     period, blocks of travel per cycle - unused by
  *                                   {@code KIND_SPIN}, present regardless so every node
  *                                   is the same size
+ *                           f32     rate, radians per second - {@code KIND_RATE} only,
+ *                                   present regardless for the same reason as period
  * </pre>
  *
  * <p>v2 wrote the same trailer without the {@code kind} and {@code period} fields -
- * every one of its nodes was implicitly {@code KIND_SPIN}. Turtles, ships and existing
- * contraptions were baked under v1 or v2 and still decode fine, because the browser
- * fills in {@code KIND_SPIN} and a zero period for a node that has neither.
+ * every one of its nodes was implicitly {@code KIND_SPIN}. v3 added those two fields but
+ * not {@code rate}, because {@code KIND_RATE} did not exist yet. Turtles, ships and
+ * existing contraptions were baked under v1, v2 or v3 and still decode fine, because the
+ * browser fills in {@code KIND_SPIN}, a zero period and a zero rate for whichever fields
+ * a node's format version does not carry.
  *
  * <p>The colour block is padded to a 4-byte boundary. It is the only unpadded array in the
  * file, and in v1 nothing followed it so that never mattered. It happens to be aligned
@@ -60,7 +64,7 @@ import java.nio.charset.StandardCharsets;
 public final class Bm3dWriter {
 
     /** Current format version. Bumped only on an incompatible layout change. */
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
 
     private static final byte[] MAGIC = {'B', 'M', '3', 'D'};
 
@@ -80,9 +84,9 @@ public final class Bm3dWriter {
 
         int vertices = mesh.vertexCount();
         int colorsPadded = (mesh.colors().length + 3) & ~3;
-        // 5 words per node: kind, index start, index count, node count is separate, plus
-        // 3 + 3 + 1 + 1 floats for pivot, axis, radius and period.
-        int nodesSize = mesh.nodes().size() * (4 * 3 + 4 * 8);
+        // 3 words per node (kind, index start, index count; node count is separate),
+        // plus 3 + 3 + 1 + 1 + 1 floats for pivot, axis, radius, period and rate.
+        int nodesSize = mesh.nodes().size() * (4 * 3 + 4 * 9);
 
         int size = 20 + urlPadded
                 + vertices * 3 * 4
@@ -130,6 +134,7 @@ public final class Bm3dWriter {
             }
             buf.putFloat(node.radius());
             buf.putFloat(node.period());
+            buf.putFloat(node.rate());
         }
 
         return buf.array();

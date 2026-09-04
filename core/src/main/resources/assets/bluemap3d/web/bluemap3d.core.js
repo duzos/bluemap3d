@@ -44,7 +44,7 @@
 
     var FEED_URL = "assets/bluemap3d/entities3d.json";
     var LOG = "[BlueMap3D]";
-    var BUILD = "core-7";
+    var BUILD = "core-8";
 
     /* Verbose per-poll diagnostics. Off by default - at two polls a second it is a lot of
      * console for a working install. Turn it on at runtime with
@@ -72,11 +72,22 @@
     var viewer = null;
     var root = null;
 
-    /* Node kinds, matching BakedMesh's KIND_* constants and the .bm3d trailer. All three
-     * are driven by the same odometer value; they differ only in what they do with it. */
+    /* Node kinds, matching BakedMesh's KIND_* constants and the .bm3d trailer. The first
+     * three are driven by the same odometer value; they differ only in what they do with
+     * it. KIND_RATE is the odd one out - it turns whether or not its object has moved at
+     * all, so it is driven by wall-clock time instead. See writeTransform. */
     var KIND_SPIN = 0;
     var KIND_OSCILLATE = 1;
     var KIND_ORBIT = 2;
+    var KIND_RATE = 3;
+
+    /* A frame gap longer than this is a tab coming back from the background, a minimised
+     * window, or a stall - not a real frame - so KIND_RATE resets rather than integrating
+     * it. Integrating a multi-second (or multi-minute) gap would spin the part through
+     * many silent revolutions the instant the tab wakes up, which is exactly the kind of
+     * jump this clamp exists to prevent. Chosen well above any real frame interval and
+     * well below "the tab was actually away for a while". */
+    var MAX_RATE_DT_SECONDS = 1;
 
     /* id -> { mesh, meshUrl, from, to, label } */
     var objects = Object.create(null);
@@ -408,9 +419,18 @@
          * and undefined + travel is NaN, which makes that child vanish. */
         entry.odometers = new Array(resource.nodes.length);
         entry.segmentTravel = new Array(resource.nodes.length);
+        /* KIND_RATE's own state: an accumulated angle plus the wall-clock time it was
+         * last advanced at, per node. rateLastTime starts null rather than "now" so the
+         * first writeTransform call for a fresh node establishes a baseline instead of
+         * integrating from mesh-load time to first render as if that gap were real
+         * elapsed rotation. */
+        entry.rateAngles = new Array(resource.nodes.length);
+        entry.rateLastTime = new Array(resource.nodes.length);
         for (var j = 0; j < resource.nodes.length; j++) {
             entry.odometers[j] = 0;
             entry.segmentTravel[j] = 0;
+            entry.rateAngles[j] = 0;
+            entry.rateLastTime[j] = null;
         }
 
         /* Placed by the next frame; adding it already positioned avoids a one-frame
@@ -485,6 +505,20 @@
                         node.pivot.y + node.radius * (c * node.orbitU.y + s * node.orbitV.y),
                         node.pivot.z + node.radius * (c * node.orbitU.z + s * node.orbitV.z)
                     );
+                } else if (node.kind === KIND_RATE) {
+                    /* Driven by wall-clock time, not by "value" (the odometer) - a
+                     * KIND_RATE part turns even while its object stands still, so travel
+                     * has nothing to offer it. performance.now() is monotonic, unlike
+                     * Date.now(), so a system clock change never shows up as a jump. */
+                    var t = performance.now();
+                    var last = entry.rateLastTime[i];
+                    var dt = last === null ? 0 : (t - last) / 1000;
+                    if (dt < 0 || dt > MAX_RATE_DT_SECONDS) {
+                        dt = 0;
+                    }
+                    entry.rateLastTime[i] = t;
+                    entry.rateAngles[i] += node.rate * dt;
+                    group.quaternion.setFromAxisAngle(node.axis, entry.rateAngles[i]);
                 } else {
                     group.quaternion.setFromAxisAngle(node.axis, value);
                 }
@@ -767,7 +801,7 @@
      * over the buffer with no copying:
      *
      *   0   char[4]     "BM3D"
-     *   4   u32         format version (1, 2 or 3)
+     *   4   u32         format version (1, 2, 3 or 4)
      *   8   u32         vertex count
      *   12  u32         index count
      *   16  u32         atlas url byte length
@@ -789,8 +823,10 @@
      *                     f32[3]  pivot, block units relative to the object pivot
      *                     f32[3]  axis, normalised
      *                     f32     radius, block units
-     *                     f32     period, blocks of travel per cycle (v3 only; a v2
+     *                     f32     period, blocks of travel per cycle (v3+ only; a v2
      *                             node has none, and kind 0 ignores it anyway)
+     *                     f32     rate, radians per second (v4 only; kinds other than
+     *                             KIND_RATE ignore it)
      */
     function decode(buffer) {
         var view = new DataView(buffer);
@@ -800,7 +836,7 @@
             throw new Error("not a .bm3d file");
         }
         var version = view.getUint32(4, true);
-        if (version !== 1 && version !== 2 && version !== 3) {
+        if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
             throw new Error("unsupported .bm3d version " + version);
         }
 
@@ -862,6 +898,13 @@
                     period = view.getFloat32(offset, true);
                     offset += 4;
                 }
+                // A v1-v3 file has no rate field at all - KIND_RATE did not exist yet,
+                // so there is nothing for an older node to have meant by it.
+                var rate = 0;
+                if (version >= 4) {
+                    rate = view.getFloat32(offset, true);
+                    offset += 4;
+                }
 
                 var node = {
                     kind: kind,
@@ -870,7 +913,8 @@
                     pivot: pivot,
                     axis: axis,
                     radius: radius,
-                    period: period
+                    period: period,
+                    rate: rate
                 };
                 if (kind === KIND_ORBIT) {
                     /* Computed once per node rather than per frame: the axis never

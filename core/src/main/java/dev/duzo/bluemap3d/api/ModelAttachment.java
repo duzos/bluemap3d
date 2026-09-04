@@ -74,7 +74,7 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      * kind-specific parameters, because the kinds do not share a parameter shape: a spin
      * needs no period, an oscillation needs no pivot. Each kind states only what it uses.
      */
-    public sealed interface Motion permits Spin, Oscillate, Orbit {
+    public sealed interface Motion permits Spin, Oscillate, Orbit, Rate {
     }
 
     /**
@@ -172,6 +172,46 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
             }
             if (!(period > 0)) {
                 throw new IllegalArgumentException("period must be positive, was " + period);
+            }
+        }
+    }
+
+    /**
+     * A part that turns about a fixed axis at a constant rate, independent of whether
+     * its object is moving at all - a cogwheel driven by something else, rather than
+     * rolling under its own travel.
+     *
+     * <p>Every other {@link Motion} is driven by the object's own travel, which is why
+     * they need no data in the live feed: the browser already tracks travel as a
+     * per-node odometer. A driven part has no travel to read - its object can be
+     * standing perfectly still - so the rate has to come from somewhere else. It is
+     * baked into the mesh instead of published per interval: the rate is wrong only
+     * when it changes, and a rate change is a block state change, which re-bakes the
+     * mesh anyway and picks up the new value. That keeps the live feed exactly as small
+     * as it is for every other kind - one position and one rotation per object.
+     *
+     * <p>The browser turns the part by {@code radiansPerSecond * elapsedSeconds},
+     * continuously, using wall-clock time rather than the odometer.
+     *
+     * @param pivot           the point the part turns about, in the model's own 0..16
+     *                        space
+     * @param axis            the axle direction, in the model's own 0..16 space.
+     *                        Normalised on construction
+     * @param radiansPerSecond how fast the part turns. Must be positive - a part that
+     *                        should not move should not carry a {@link Rate} at all
+     */
+    public record Rate(Vector3f pivot, Vector3f axis, float radiansPerSecond) implements Motion {
+        public Rate {
+            Objects.requireNonNull(pivot, "pivot");
+            Objects.requireNonNull(axis, "axis");
+            if (axis.lengthSquared() < 1.0e-20f) {
+                throw new IllegalArgumentException("axis must be non-zero");
+            }
+            pivot = new Vector3f(pivot);
+            axis = new Vector3f(axis).normalize();
+            if (!(radiansPerSecond > 0)) {
+                throw new IllegalArgumentException(
+                        "radiansPerSecond must be positive, was " + radiansPerSecond);
             }
         }
     }

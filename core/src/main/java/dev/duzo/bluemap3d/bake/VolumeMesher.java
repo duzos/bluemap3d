@@ -302,7 +302,7 @@ public final class VolumeMesher {
                     BakedMesh.KIND_SPIN, indexStart, indexCount,
                     pivotFor(spin.pivot(), matrix, attachment, volumePivot),
                     axisFor(spin.axis(), matrix),
-                    spin.radius() / 16f * s, 0f);
+                    spin.radius() / 16f * s, 0f, 0f);
             case ModelAttachment.Oscillate oscillate -> new BakedMesh.Node(
                     BakedMesh.KIND_OSCILLATE, indexStart, indexCount,
                     // No pivot to orbit or turn about: the offset is added straight to
@@ -310,12 +310,19 @@ public final class VolumeMesher {
                     // one the browser's bounding-sphere maths reads most naturally.
                     new float[]{0f, 0f, 0f},
                     axisFor(oscillate.axis(), matrix),
-                    oscillate.amplitude() / 16f * s, oscillate.period());
+                    oscillate.amplitude() / 16f * s, oscillate.period(), 0f);
             case ModelAttachment.Orbit orbit -> new BakedMesh.Node(
                     BakedMesh.KIND_ORBIT, indexStart, indexCount,
                     pivotFor(orbit.pivot(), matrix, attachment, volumePivot),
                     axisFor(orbit.axis(), matrix),
-                    orbit.radius() / 16f * s, orbit.period());
+                    orbit.radius() / 16f * s, orbit.period(), 0f);
+            case ModelAttachment.Rate rate -> new BakedMesh.Node(
+                    BakedMesh.KIND_RATE, indexStart, indexCount,
+                    pivotFor(rate.pivot(), matrix, attachment, volumePivot),
+                    axisFor(rate.axis(), matrix),
+                    // No radius or period: a constant rate is not a length, so the
+                    // transform's scale has nothing to act on.
+                    0f, 0f, rate.radiansPerSecond());
         };
     }
 
