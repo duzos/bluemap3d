@@ -1,0 +1,72 @@
+#BlueMap3D renders real 3D geometry inside BlueMap's three.js scene.
+#With no addons installed this mod does nothing at all.
+[general]
+	#How often to republish object positions, in ticks (20 = 1s).
+	#The browser interpolates between samples, so a larger value costs
+	#responsiveness but not smoothness. Below ~5 the bandwidth stops
+	#buying you anything the interpolation was not already giving you.
+	#
+	#Do not set this slower than the things you are tracking turn. Two 90
+	#degree turns inside one sample look like a single 180 degree turn,
+	#and a 180 degree rotation has no shorter way round - so it resolves
+	#the same arbitrary direction every time and reads as the object
+	#spinning the long way. Sampling faster than the object turns is the
+	#only real fix; interpolation cannot recover what was not sampled.
+	# Default: 10
+	# Range: 1 ~ 600
+	publishIntervalTicks = 10
+	#Refuse to mesh any single object larger than this many blocks.
+	# Default: 20000
+	# Range: 1 ~ 1000000
+	maxBlocksPerObject = 20000
+	#Minimum seconds between telling a viewer's browser to re-download
+	#terrain tiles that changed. Negative disables it entirely.
+	#
+	#DISABLED by default (-1): opt-in only. It makes viewers re-download
+	#tiles without asking, so it should be a decision rather than something
+	#a server ends up doing because it was the default. Set it to 5 or so
+	#to turn it on.
+	#
+	#What it buys: BlueMap's webapp never revalidates tiles by itself - its
+	#update loop only follows the player marker, and tile urls carry a cache
+	#hash fixed for the session. So without this, a viewer who leaves the
+	#page open sees terrain frozen as it was when they opened it, however
+	#often the server re-renders. A turtle's tunnel never appears.
+	#
+	#Only the tiles the server says changed are replaced, and only hires
+	#ones, so the cost is a couple of tiles rather than the whole view.
+	# Default: -1
+	# Range: -1 ~ 3600
+	tileReloadMinSeconds = 5
+
+#Where block models and textures come from.
+#A dedicated server has no client assets, so without a source here
+#every block falls back to a solid cube in its map colour. That still
+#gives correct 3D shapes, just untextured.
+[assets]
+	#Read real block models and textures where they can be found.
+	useResourcePacks = true
+	#Extra jars, zips or directories to search, highest priority first.
+	#Paths are relative to the server directory. Mod jars are searched
+	#automatically; this is for the vanilla client jar and resource packs.
+	#BlueMap's own resourcepacks directory is picked up automatically too.
+	#Example: ["resourcepacks/Faithful.zip", "client-1.21.1.jar"]
+	sources = []
+	#Hide blocks that a provider draws live from BlueMap's own terrain
+	#tiles, by writing a resource pack into BlueMap's packs folder that
+	#maps them to an empty model.
+	#
+	#Without this you see those objects twice: the live one that moves, and
+	#a copy baked into the terrain wherever it was when that tile was last
+	#rendered - and the baked one looks more convincing, because BlueMap's
+	#terrain shader lit it.
+	#
+	#Only matters for objects whose blocks really exist in world chunks - a
+	#turtle. Sable ships and Create carriages keep their blocks outside
+	#world chunks, which is why BlueMap cannot draw them at all and why
+	#they never double up.
+	#
+	#Turning this off after it has been on leaves the pack behind until the
+	#next start, and already-rendered tiles keep whatever they were
+	#rendered with until they are re-rendered ('/bluemap purge').
+	hideLiveBlocksFromTiles = true

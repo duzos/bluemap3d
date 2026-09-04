@@ -1,0 +1,6 @@
+{
+    "pack": {
+        "description": "BlueMap3D Create test: builds a slow bearing and a windmill, and assembles both.",
+        "pack_format": 48
+    }
+}
