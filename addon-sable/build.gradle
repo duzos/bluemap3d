@@ -5,7 +5,7 @@ plugins {
 
 ext {
     mod_id = 'bluemap3d_sable'
-    mod_name = 'BlueMap3D: Ships'
+    mod_name = 'BlueMap: Aeronautics'
     mod_description = 'Shows Sable ships as real 3D models on your BlueMap. Their blocks live in sub-levels, which is why BlueMap cannot show them otherwise.'
 }
 
@@ -36,7 +36,7 @@ publishMods {
     changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
     type = STABLE
     version = "${project.version}-${minecraft_version}"
-    displayName = "BlueMap3D: Ships ${project.version} (${minecraft_version} NeoForge)"
+    displayName = "BlueMap: Aeronautics ${project.version} (${minecraft_version} NeoForge)"
     modLoaders.add("neoforge")
 
     def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }

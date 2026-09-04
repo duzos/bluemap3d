@@ -5,7 +5,7 @@ plugins {
 
 ext {
     mod_id = 'bluemap3d_computercraft'
-    mod_name = 'BlueMap3D: Turtles'
+    mod_name = 'Bluemap: Computer Craft'
     mod_description = 'Shows live ComputerCraft turtles as real 3D models on your BlueMap.'
 }
 
@@ -31,7 +31,7 @@ publishMods {
     changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
     type = STABLE
     version = "${project.version}-${minecraft_version}"
-    displayName = "BlueMap3D: Turtles ${project.version} (${minecraft_version} NeoForge)"
+    displayName = "Bluemap: Computer Craft ${project.version} (${minecraft_version} NeoForge)"
     modLoaders.add("neoforge")
 
     def mcVersions = project.publish_game_versions.split(",").collect { it.trim() }
