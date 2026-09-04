@@ -93,9 +93,9 @@ public final class WebRootPublisher {
      */
     public String writeMesh(String provider, String objectId, long version, BakedMesh mesh)
             throws IOException {
-        String stem = BASE + "/meshes/" + sanitise(provider) + "/" + sanitise(objectId) + "-" + version;
-        String meshUrl = stem + ".bm3d";
-        String atlasUrl = stem + ".png";
+        String stemPart = stem(objectId, version);
+        String meshUrl = BASE + "/meshes/" + sanitise(provider) + "/" + stemPart + ".bm3d";
+        String atlasUrl = BASE + "/meshes/" + sanitise(provider) + "/" + stemPart + ".png";
 
         Path meshPath = resolve(meshUrl);
         Files.createDirectories(meshPath.getParent());
@@ -121,7 +121,7 @@ public final class WebRootPublisher {
      * <p>Called after a re-bake, once the feed has stopped pointing at the old url.
      */
     public void deleteMeshVersion(String provider, String objectId, long version) {
-        deleteMatching(provider, sanitise(objectId) + "-" + version + ".");
+        deleteMatching(provider, stem(objectId, version) + ".");
     }
 
     private void deleteMatching(String provider, String prefix) {
@@ -229,6 +229,23 @@ public final class WebRootPublisher {
         // "." and ".." would still be path traversal after the filter above.
         String result = out.toString();
         return result.equals(".") || result.equals("..") || result.isEmpty() ? "_" : result;
+    }
+
+    /**
+     * The filename stem for one object at one geometry version.
+     *
+     * <p>The format version goes before the geometry version, and that order is
+     * not cosmetic: {@link #deleteMeshVersion} matches on the geometry version followed by
+     * a dot, so a format version after it would match nothing and every superseded mesh
+     * and atlas would survive for the life of the server.
+     *
+     * <p>The format version is here at all because the browser fetches meshes with
+     * {@code cache: "force-cache"} and a geometry version is a hash of the block map, so
+     * the same object yields the same URL across a restart or an upgrade. Without this a
+     * returning viewer would hand a v1 body to a v2 decoder.
+     */
+    private static String stem(String objectId, long version) {
+        return sanitise(objectId) + "-v" + Bm3dWriter.VERSION + "-" + version;
     }
 
     @FunctionalInterface
