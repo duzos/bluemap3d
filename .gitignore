@@ -26,3 +26,6 @@ logs
 # Sable publishes no maven, so its jar is dropped in by hand
 addon-sable/libs
 dev-harness/libs
+
+# docs is scratch space - images, notes, anything not part of the repo
+docs
