@@ -216,8 +216,21 @@ public interface BlockVolume {
      * @param pivot  rotation origin, in the same coordinates as the map's keys
      */
     static BlockVolume of(Map<BlockPos, BlockState> blocks, Vec3 pivot) {
+        return of(blocks, pivot, java.util.List.of());
+    }
+
+    /**
+     * A sparse volume with attachments. The contraption case: Create hands out a
+     * carriage's blocks as a map, and its bogey wheels are attachments on top.
+     *
+     * <p>An empty block map returns {@link #EMPTY}, which discards the attachments with
+     * it. A volume with nothing to hang an attachment off is not a volume.
+     */
+    static BlockVolume of(Map<BlockPos, BlockState> blocks, Vec3 pivot,
+                          Collection<ModelAttachment> attachments) {
         Objects.requireNonNull(blocks, "blocks");
         Objects.requireNonNull(pivot, "pivot");
+        Collection<ModelAttachment> extras = java.util.List.copyOf(attachments);
 
         Map<BlockPos, BlockState> copy = new HashMap<>(blocks.size());
         blocks.forEach((pos, state) -> {
@@ -245,6 +258,9 @@ public interface BlockVolume {
         BlockState air = Blocks.AIR.defaultBlockState();
 
         return new BlockVolume() {
+            @Override public Collection<ModelAttachment> attachments() {
+                return extras;
+            }
             @Override public BlockPos min() {
                 return lo;
             }
