@@ -1,6 +1,10 @@
 package dev.duzo.bluemap3d.create;
 
+import com.simibubi.create.content.trains.graph.TrackEdge;
+import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
+import com.simibubi.create.content.trains.track.TrackBlock;
+import com.simibubi.create.content.trains.track.TrackShape;
 import dev.duzo.bluemap3d.api.BlockVolume;
 import dev.duzo.bluemap3d.api.ModelAttachment;
 import dev.duzo.bluemap3d.api.SceneObject;
@@ -11,6 +15,8 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -19,11 +25,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * Reports curved Create track as {@link SceneObject}s, one per grid cell.
@@ -79,6 +91,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * simplification, not a correction of anything wrong with Create's approach - it just needs
  * far less trigonometry to reproduce and, at Create's own segment density
  * (round(length * 2) steps), the difference is not visible.
+ *
+ * <h2>Diagonal and ascending track blocks</h2>
+ * Curves are not the only Create track Create itself draws from an obj mesh instead of a
+ * block model - the diagonal and ascending straight pieces ({@code create:block/track/diag},
+ * {@code diag_2}, {@code ascending} and {@code cross_diag}) do too, even though they are
+ * ordinary blocks with an ordinary block state, unlike a curve's bezier. So rather than
+ * hand-placing more attachments for them, {@link #collectTrackBlocks} finds them as real
+ * blocks and folds them straight into the same cell's {@link BlockVolume} - the existing
+ * pipeline (blockstate to variant to model, including the variant's own {@code x}/{@code y}
+ * rotation) draws them without this file caring how. The orthogonal shapes
+ * ({@code x_ortho}, {@code z_ortho}, {@code cross_ortho}) are deliberately excluded: their
+ * models are ordinary {@code elements} JSON, BlueMap's regular terrain scan already draws
+ * them, and adding them here would draw them a second time.
  *
  * <h2>Known limitations, accepted rather than fixed here</h2>
  * <ul>
@@ -147,6 +172,21 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      */
     private static final double BOUNDS_PAD = 3.0;
 
+    /**
+     * The four block model names Create's {@code track.json} blockstate loads with
+     * {@code "loader": "neoforge:obj"} rather than plain {@code elements} JSON - see the
+     * class header. Named here instead of the {@link TrackShape} values that happen to use
+     * them today, so a future Create version that renames a shape but keeps its model is
+     * still caught, and a shape that reuses one of these names for a different model is not
+     * wrongly swept in.
+     */
+    private static final Set<String> OBJ_MODEL_NAMES = Set.of("diag", "diag_2", "ascending", "cross_diag");
+
+    /** Every {@link TrackShape} whose model is one of {@link #OBJ_MODEL_NAMES}. */
+    private static final Set<TrackShape> OBJ_MODELLED_SHAPES = Arrays.stream(TrackShape.values())
+            .filter(shape -> OBJ_MODEL_NAMES.contains(shape.getModel()))
+            .collect(Collectors.toCollection(() -> EnumSet.noneOf(TrackShape.class)));
+
     /** Logged once, the same pattern {@link ContraptionProvider} uses for its own limits. */
     private final AtomicBoolean cellCapLogged = new AtomicBoolean(false);
 
@@ -161,34 +201,48 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             return List.of();
         }
         List<BezierConnection> curves = TrackCurves.find(level);
-        if (curves.isEmpty()) {
+        List<TrackEdge> straightEdges = TrackCurves.findStraightEdges(level);
+        if (curves.isEmpty() && straightEdges.isEmpty()) {
             return List.of();
         }
 
         int gridSize = CreateConfig.CURVE_GRID_SIZE.get();
-        Map<Long, List<BezierConnection>> cells = new LinkedHashMap<>();
+        Map<Long, List<BezierConnection>> curvesByCell = new LinkedHashMap<>();
         for (BezierConnection curve : curves) {
             long key = cellKeyOf(curve, gridSize);
-            cells.computeIfAbsent(key, k -> new ArrayList<>()).add(curve);
+            curvesByCell.computeIfAbsent(key, k -> new ArrayList<>()).add(curve);
+        }
+        Map<Long, Map<BlockPos, BlockState>> trackBlocksByCell =
+                collectTrackBlocks(level, straightEdges, gridSize);
+
+        // A cell needs an object once for its curves and once for its diagonal track
+        // blocks, but a curve rarely lands in the same cell as one of these blocks, so
+        // neither map alone is the full set of cells that need drawing - the union is.
+        Set<Long> cellKeys = new LinkedHashSet<>(curvesByCell.keySet());
+        cellKeys.addAll(trackBlocksByCell.keySet());
+        if (cellKeys.isEmpty()) {
+            return List.of();
         }
 
         int maxObjects = CreateConfig.MAX_CURVE_OBJECTS.get();
-        if (cells.size() > maxObjects && cellCapLogged.compareAndSet(false, true)) {
-            LOGGER.warn("{} curve grid cells in {}, over the {} object cap; the rest are not "
+        if (cellKeys.size() > maxObjects && cellCapLogged.compareAndSet(false, true)) {
+            LOGGER.warn("{} track grid cells in {}, over the {} object cap; the rest are not "
                             + "drawn. Raise bluemap3d_create.maxCurveObjects if this is expected.",
-                    cells.size(), level.dimension().location(), maxObjects);
+                    cellKeys.size(), level.dimension().location(), maxObjects);
         }
 
         ResourceKey<Level> dimension = level.dimension();
         ResourceLocation dimId = dimension.location();
-        List<SceneObject> out = new ArrayList<>(Math.min(cells.size(), maxObjects));
-        for (Map.Entry<Long, List<BezierConnection>> entry : cells.entrySet()) {
+        List<SceneObject> out = new ArrayList<>(Math.min(cellKeys.size(), maxObjects));
+        for (Long key : cellKeys) {
             if (out.size() >= maxObjects) {
                 break;
             }
-            int cellX = (int) (entry.getKey() >> 32);
-            int cellZ = (int) (long) entry.getKey();
-            SceneObject object = toSceneObject(dimension, dimId, gridSize, cellX, cellZ, entry.getValue());
+            int cellX = (int) (key >> 32);
+            int cellZ = (int) (long) key;
+            SceneObject object = toSceneObject(dimension, dimId, gridSize, cellX, cellZ,
+                    curvesByCell.getOrDefault(key, List.of()),
+                    trackBlocksByCell.getOrDefault(key, Map.of()));
             if (object != null) {
                 out.add(object);
             }
@@ -207,10 +261,62 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * connection map. Using it here would file a curve under its wrong end.
      */
     private static long cellKeyOf(BezierConnection curve, int gridSize) {
-        BlockPos first = curve.bePositions.getFirst();
-        int cellX = Math.floorDiv(first.getX(), gridSize);
-        int cellZ = Math.floorDiv(first.getZ(), gridSize);
+        return cellKeyOf(curve.bePositions.getFirst(), gridSize);
+    }
+
+    /** Which grid cell a world position belongs to. Track blocks are filed by their own
+     * position, unlike a curve - see {@link #collectTrackBlocks}. */
+    private static long cellKeyOf(BlockPos pos, int gridSize) {
+        int cellX = Math.floorDiv(pos.getX(), gridSize);
+        int cellZ = Math.floorDiv(pos.getZ(), gridSize);
         return (((long) cellX) << 32) | (cellZ & 0xffffffffL);
+    }
+
+    /**
+     * Walks every straight edge's two endpoints in one-block steps, keeping the blocks whose
+     * shape is one of {@link #OBJ_MODELLED_SHAPES}.
+     *
+     * <p>This is the bounded, exact alternative to scanning loaded chunks that
+     * {@link SceneObjectProvider}'s javadoc calls for: the railway graph already names the
+     * two ends of every straight run, so only the blocks on the line between them are ever
+     * read, never a whole region.
+     *
+     * <p>Ascending track climbs a block of Y for every block of horizontal travel, so all
+     * three axes are interpolated together rather than assuming the endpoints share a Y
+     * level the way a flat run would.
+     *
+     * <p>Blocks are filed under whichever cell actually contains them, not the cell their
+     * edge's curve-equivalent would use - an edge can run for a while before it happens to
+     * carry a diagonal or ascending shape, so keying on an edge-level anchor the way a curve
+     * is keyed on {@code bePositions.getFirst()} could file a block under a cell far from
+     * where it is drawn.
+     */
+    private static Map<Long, Map<BlockPos, BlockState>> collectTrackBlocks(
+            ServerLevel level, List<TrackEdge> edges, int gridSize) {
+        Map<Long, Map<BlockPos, BlockState>> byCell = new LinkedHashMap<>();
+        for (TrackEdge edge : edges) {
+            TrackNodeLocation a = edge.node1.getLocation();
+            TrackNodeLocation b = edge.node2.getLocation();
+            int steps = Math.max(Math.abs(b.getX() - a.getX()),
+                    Math.max(Math.abs(b.getY() - a.getY()), Math.abs(b.getZ() - a.getZ())));
+            for (int i = 0; i <= steps; i++) {
+                float t = steps == 0 ? 0f : (float) i / steps;
+                BlockPos pos = new BlockPos(
+                        Math.round(a.getX() + (b.getX() - a.getX()) * t),
+                        Math.round(a.getY() + (b.getY() - a.getY()) * t),
+                        Math.round(a.getZ() + (b.getZ() - a.getZ()) * t));
+                BlockState state = level.getBlockState(pos);
+                if (!(state.getBlock() instanceof TrackBlock) || !state.hasProperty(TrackBlock.SHAPE)) {
+                    continue;
+                }
+                if (!OBJ_MODELLED_SHAPES.contains(state.getValue(TrackBlock.SHAPE))) {
+                    continue;
+                }
+                long cellKey = cellKeyOf(pos, gridSize);
+                byCell.computeIfAbsent(cellKey, k -> new HashMap<>()).put(pos.immutable(), state);
+            }
+        }
+        return byCell;
     }
 
     /**
@@ -219,7 +325,8 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * and every curve draws at least one tie.
      */
     private SceneObject toSceneObject(ResourceKey<Level> dimension, ResourceLocation dimId,
-                                      int gridSize, int cellX, int cellZ, List<BezierConnection> curves) {
+                                      int gridSize, int cellX, int cellZ, List<BezierConnection> curves,
+                                      Map<BlockPos, BlockState> trackBlocks) {
         Vec3 cellOrigin = new Vec3(cellX * (double) gridSize, 0, cellZ * (double) gridSize);
         List<ModelAttachment> attachments = new ArrayList<>();
         Bounds bounds = new Bounds();
@@ -239,16 +346,43 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             long seed = curve.bePositions.getFirst().asLong();
             version ^= mix(mix(FNV_OFFSET, seed), nbt.hashCode());
         }
-        if (attachments.isEmpty()) {
+
+        // Track blocks are added as real blocks, not attachments - see the class header on
+        // why they need none of the tie/rail modelling a curve does. World positions are
+        // rebased into the cell's own local space (Y is untouched, since the grid only
+        // splits the world on X/Z) the same way ContraptionProvider rebases contraption
+        // blocks onto their anchor.
+        Map<BlockPos, BlockState> localBlocks = new HashMap<>(trackBlocks.size());
+        for (Map.Entry<BlockPos, BlockState> entry : trackBlocks.entrySet()) {
+            BlockPos world = entry.getKey();
+            BlockState state = entry.getValue();
+            BlockPos local = new BlockPos(world.getX() - cellX * gridSize, world.getY(), world.getZ() - cellZ * gridSize);
+            localBlocks.put(local, state);
+            expandBoundsForBlock(bounds, local);
+            // Same commutative-fold seeding as the curve loop above, and for the same
+            // reason: two identical track pieces are common (straight runs repeat the same
+            // state for blocks at a time), so an unseeded fold would let them cancel out.
+            version ^= mix(mix(FNV_OFFSET, world.asLong()), Block.getId(state));
+        }
+        if (attachments.isEmpty() && localBlocks.isEmpty()) {
             return null;
         }
         version = mix(version, curves.size());
+        version = mix(version, localBlocks.size());
 
         BlockPos min = new BlockPos(
                 (int) Math.floor(bounds.minX), (int) Math.floor(bounds.minY), (int) Math.floor(bounds.minZ));
         BlockPos max = new BlockPos(
                 (int) Math.ceil(bounds.maxX), (int) Math.ceil(bounds.maxY), (int) Math.ceil(bounds.maxZ));
-        BlockVolume volume = BlockVolume.attachments(min, max, Vec3.ZERO, attachments);
+        // BlockVolume.of derives its own min/max purely from the block map, which would
+        // clip the browser's culling box to just the track blocks and miss a curve's tie
+        // and rail attachments reaching out past them - so an empty block map keeps using
+        // the attachments-only factory (of would silently discard the attachments outright,
+        // per its own javadoc, since an empty block map alone means EMPTY), and a non-empty
+        // one goes through boundedVolume to keep the bounds this method already computed.
+        BlockVolume volume = localBlocks.isEmpty()
+                ? BlockVolume.attachments(min, max, Vec3.ZERO, attachments)
+                : boundedVolume(min, max, Vec3.ZERO, localBlocks, attachments);
 
         // The dimension goes in the id for the same reason ContraptionProvider puts it in
         // its own: core keys tracked objects on provider and id together with no regard to
@@ -385,6 +519,57 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         double lz = worldPoint.z - cellOrigin.z;
         bounds.expand(lx - BOUNDS_PAD, ly - BOUNDS_PAD, lz - BOUNDS_PAD);
         bounds.expand(lx + BOUNDS_PAD, ly + BOUNDS_PAD, lz + BOUNDS_PAD);
+    }
+
+    /**
+     * Expands {@code bounds} to cover one whole block, unlike {@link #expandBounds} above -
+     * a track block's extent is exactly known, so it gets no {@link #BOUNDS_PAD}, unlike an
+     * attachment's mesh whose true reach past its anchor point is not.
+     */
+    private static void expandBoundsForBlock(Bounds bounds, BlockPos local) {
+        bounds.expand(local.getX(), local.getY(), local.getZ());
+        bounds.expand(local.getX() + 1, local.getY() + 1, local.getZ() + 1);
+    }
+
+    /**
+     * {@link BlockVolume#of} with the given bounds instead of ones derived from the block
+     * map alone.
+     *
+     * <p>{@code of}'s own {@code min()}/{@code max()} only ever look at the block positions
+     * it was handed, because a contraption or a ship - the only callers before this one -
+     * never carries attachment geometry that reaches further than its blocks do. A cell that
+     * mixes track blocks with a curve's tie and rail attachments breaks that assumption, and
+     * the browser uses these bounds for culling, so they need to cover both.
+     */
+    private static BlockVolume boundedVolume(BlockPos min, BlockPos max, Vec3 pivot,
+                                             Map<BlockPos, BlockState> blocks,
+                                             Collection<ModelAttachment> attachments) {
+        BlockVolume base = BlockVolume.of(blocks, pivot, attachments);
+        BlockPos lo = min.immutable();
+        BlockPos hi = max.immutable();
+        return new BlockVolume() {
+            @Override public Collection<ModelAttachment> attachments() {
+                return base.attachments();
+            }
+            @Override public BlockPos min() {
+                return lo;
+            }
+            @Override public BlockPos max() {
+                return hi;
+            }
+            @Override public Vec3 pivot() {
+                return base.pivot();
+            }
+            @Override public BlockState stateAt(int x, int y, int z) {
+                return base.stateAt(x, y, z);
+            }
+            @Override public void forEachBlock(BlockConsumer consumer) {
+                base.forEachBlock(consumer);
+            }
+            @Override public int blockCount() {
+                return base.blockCount();
+            }
+        };
     }
 
     /** FNV-1a's mixing step. */
