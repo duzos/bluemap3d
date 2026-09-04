@@ -2,6 +2,7 @@ package dev.duzo.bluemap3d.create;
 
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.Contraption;
+import com.simibubi.create.content.trains.track.BezierConnection;
 import dev.duzo.bluemap3d.Config;
 import dev.duzo.bluemap3d.api.BlockVolume;
 import dev.duzo.bluemap3d.api.ModelAttachment;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Reports every moving Create contraption as a {@link SceneObject}.
@@ -57,11 +59,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * sees it. There is nothing to do about it.
  *
  * <p>The obvious alternative - reading {@code Create.RAILWAYS} for the train list, which
- * is what the prior-art mods do - is the wrong layer twice over. Those mods draw
- * <em>markers</em>, and a dot on a 2D map genuinely does want the registry; this wants
- * blocks and a pose, which the entity has and the registry does not. And touching
- * {@code Create} at all would drag in Registrate, which the {@code slim} artifact
- * deliberately keeps off the compile classpath. Nothing here imports it.
+ * is what the prior-art mods do - is the wrong layer twice over for contraptions. Those
+ * mods draw <em>markers</em>, and a dot on a 2D map genuinely does want the registry; this
+ * wants blocks and a pose, which the entity has and the registry does not. (The railway
+ * graph earns its keep elsewhere in this file, for curved track discovery - see
+ * {@link TrackCurves} - which is a different problem with no entity to read a pose from.)
  *
  * <h2>The transform</h2>
  * Create defines where a contraption's local block lands in the world in
@@ -198,6 +200,13 @@ public final class ContraptionProvider implements SceneObjectProvider {
      */
     private final Set<String> unrotatable = ConcurrentHashMap.newKeySet();
 
+    // Scaffolding for the curved-track task: prove TrackCurves.find can enumerate the
+    // railway graph before any geometry is built on it. Runs once rather than every
+    // publish interval, since this is a one-shot discovery check and not part of the
+    // provider's real output - it returns no SceneObject and adds nothing to the map.
+    // Remove this guard and call once curve geometry lands.
+    private static final AtomicBoolean CURVE_DISCOVERY_LOGGED = new AtomicBoolean(false);
+
     @Override
     public String id() {
         return "create_contraptions";
@@ -205,6 +214,10 @@ public final class ContraptionProvider implements SceneObjectProvider {
 
     @Override
     public Collection<? extends SceneObject> objects(ServerLevel level) {
+        if (CURVE_DISCOVERY_LOGGED.compareAndSet(false, true)) {
+            logCurveDiscovery(level);
+        }
+
         List<? extends AbstractContraptionEntity> entities = level.getEntities(
                 EntityTypeTest.forClass(AbstractContraptionEntity.class), e -> true);
         if (entities.isEmpty()) {
@@ -337,6 +350,21 @@ public final class ContraptionProvider implements SceneObjectProvider {
                 return dimension;
             }
         };
+    }
+
+    /**
+     * Logs what {@link TrackCurves#find} sees, once, so the discovery step can be checked
+     * against the real graph before any geometry is built on it. Scaffolding only - the
+     * next task replaces this call with real curve rendering.
+     */
+    private static void logCurveDiscovery(ServerLevel level) {
+        List<BezierConnection> curves = TrackCurves.find(level);
+        double totalLength = 0;
+        for (BezierConnection curve : curves) {
+            totalLength += curve.getLength();
+        }
+        LOGGER.info("Curve discovery: found {} curve(s) in {}, total length {} blocks",
+                curves.size(), level.dimension().location(), totalLength);
     }
 
     /**

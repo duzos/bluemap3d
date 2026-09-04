@@ -75,6 +75,13 @@ repositories {
         name = 'BlameJared'
         url = 'https://maven.blamejared.com'
     }
+    // Registrate, for addon-create. Reaching Create.RAILWAYS pulls Registrate types onto
+    // the compile classpath, because Create itself references CreateRegistrate - even
+    // though addon-create never calls Registrate directly.
+    maven {
+        name = 'ithundxr'
+        url = 'https://maven.ithundxr.dev/snapshots'
+    }
     // Sable has no public maven; addon-sable resolves it from libs/ if present.
     // See addon-sable/build.gradle.
 }

@@ -16,10 +16,16 @@ dependencies {
     // The `slim` classifier is the one to compile against. It is the same Create classes
     // as the main jar minus the jar-in-jars it ships (Registrate, Ponder) - and since
     // every dependency in Create's published pom is runtime-scoped, a compileOnly
-    // dependency resolves to this one file and nothing else. Registrate is not needed
-    // here: the provider touches two Create classes, neither of which is `Create` itself,
-    // whose REGISTRATE field is the only reason a dependent would need it.
+    // dependency resolves to this one file and nothing else.
     compileOnly "com.simibubi.create:create-${minecraft_version}:${create_version}:slim"
+
+    // TrackCurves reaches Create.RAILWAYS for the curved-track discovery task, and the
+    // Create class itself references CreateRegistrate (its registrate() method's return
+    // type) - so touching Create.RAILWAYS pulls Registrate types onto the compile
+    // classpath even though nothing here calls Registrate directly. Compile-only, same as
+    // Create itself: Registrate is bundled inside Create's own jar at runtime, so it must
+    // never be added to devMods or bundled here.
+    compileOnly "com.tterrag.registrate:Registrate:MC1.21-1.3.0+67"
 
     // The real mod, for the dev server - the main jar rather than slim, because this one
     // has to actually run and the loader needs the jar-in-jars unpacked. Create declares
