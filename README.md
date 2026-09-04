@@ -28,10 +28,10 @@ Server side only. Nothing for players to install.
 | --- | --- | --- | --- |
 | **Turtles** | `bluemap3d_computercraft` | Live CC:Tweaked turtles, labelled, with their upgrades | ✅ Working |
 | **Ships** | `bluemap3d_sable` | Sable ships, named, which BlueMap cannot show at all today | ✅ Working |
-| **Trains** | `bluemap3d_create` | Create trains, one object per carriage | 🚧 Not implemented |
+| **Create** | `bluemap3d_create` | Create trains and moving contraptions, one object each | ✅ Working |
 
-Ships and trains are the interesting cases: their blocks live outside world chunks, so BlueMap
-has no way to draw them. Turtles are in world chunks, so BlueMap3D also hides them from the
+Ships and contraptions are the interesting cases: their blocks live outside world chunks, so
+BlueMap has no way to draw them. Turtles are in world chunks, so BlueMap3D also hides them from the
 terrain tiles to stop them being drawn twice.
 
 ## 📦 Install

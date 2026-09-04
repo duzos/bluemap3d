@@ -124,26 +124,34 @@ The parts most likely to bite, all recorded in the source where they apply:
   tell one block from the next; get the order wrong and the model offsets are gone before
   the pivot is ever subtracted. A turtle at spawn never shows it.
 
-## 🚂 Writing the trains addon
+## 🚂 How the Create addon works
 
-`addon-create` is a registered stub. Whoever picks it up:
+`addon-create` enumerates `AbstractContraptionEntity` and reports one `SceneObject` per
+contraption entity. That single choice is worth understanding before changing anything
+here:
 
-1. Enumerate live trains and their carriages for a `ServerLevel`.
-2. One `SceneObject` **per carriage**, not per train - a train articulates, so it is not one
-   rigid body. Geometry comes from `BlockVolume.of`, which takes a carriage's in-memory
-   block map directly.
-3. Position and rotation per carriage each tick.
-4. Bump `geometryVersion()` when the consist changes - a carriage added, removed, or its
-   contraption edited - and never on movement.
+1. **Trains come free.** Create's four contraption entity types all extend that base, and a
+   train carriage is already one entity per carriage with its own server-updated pose. The
+   articulation that made trains look like the hardest addon is solved by Create before
+   this addon sees it. Bearings, gantries, pistons and minecart contraptions arrive through
+   the same enumeration, and a fifth subclass would need no change.
+2. **The registry is the wrong layer.** `Create.RAILWAYS` is what
+   [create_bluemap](https://modrinth.com/mod/create_bluemap) and `create-track-map` read,
+   and correctly so - they draw markers, and a dot on a 2D map wants the track graph. This
+   wants blocks and a pose, which the entity has and the registry does not. It also keeps
+   `Create` itself off the compile classpath, and with it Registrate.
+3. **The transform is Create's own.** `toGlobalVector` is
+   `anchor + off + applyRotation(local - off)` with `off = (0.5, 0.5, 0.5)`, which matches
+   core's `position + rotation * (local - pivot)` with a constant pivot. The rotation is
+   recovered by sampling `applyRotation` with the three basis vectors rather than by
+   reimplementing four subclasses.
+4. **`geometryVersion()` has to hash block states, not count them.** Create mutates a
+   contraption's states in place - doors, lamps, deployers - so a count alone never changes
+   and a carriage door would never re-mesh.
 
 `hiddenBlocks()` is not needed: a contraption's blocks are not in world chunks, so they are
 never drawn twice.
 
-Prior art for the data access:
-[create_bluemap](https://modrinth.com/mod/create_bluemap) by Szedann reads
-`com.simibubi.create.content.trains.entity.Train` off a scheduled executor; reuse how it
-reaches the train list and replace its marker output with a provider.
-
-Create's maven pulls a large transitive graph - Registrate, Flywheel, Ponder - so the
-dependency is left commented in `addon-create/build.gradle` rather than paid for on every
-build while the provider is a stub.
+The dependency is `compileOnly` on the `slim` artifact, which is one jar: every dependency
+in Create's pom is runtime-scoped, so nothing transitive arrives. The dev server takes the
+full jar instead, because it has to run and the loader needs the jar-in-jars.

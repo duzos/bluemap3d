@@ -46,5 +46,13 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Terrain a ship invalidates by appearing or being shattered back into the world is queued
   for re-render.
 
-**Trains (`bluemap3d_create`)**
-- Module, dependencies and publishing set up; provider not implemented yet.
+**Create (`bluemap3d_create`)**
+- Live Create contraptions: train carriages, minecart contraptions, gantry carriages,
+  piston and pulley assemblies, and rotating bearings.
+- Found by enumerating `AbstractContraptionEntity`, so trains need no special case - Create
+  already spawns one entity per carriage, which is what makes a train on a curve bend
+  rather than render as a plank.
+- Rotation is recovered by sampling Create's own `applyRotation` with the three basis
+  vectors, so all four contraption types go through one path and a fifth would too.
+- A contraption that disassembles becomes a new entity, and so a new object with a fresh
+  bake, at no cost.
