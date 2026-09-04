@@ -1,157 +1,94 @@
 <div align="center">
 
+<img src="../img/logo.png" width="160" alt="logo">
+
 # BlueMap3D
 
-### The library. Install an addon to see something.
+### The library the add-ons run on.
 
-![Mod id](https://img.shields.io/badge/mod%20id-bluemap3d-2D6FE0?style=for-the-badge)
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-62B47A?style=for-the-badge)
+![Server side](https://img.shields.io/badge/Server%20side-only-2D6FE0?style=for-the-badge)
 ![Licence](https://img.shields.io/badge/licence-LGPL--3.0-A42E2B?style=for-the-badge)
+
+[<img alt="neoforge" height="52" src="https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/neoforge_vector.svg">](https://neoforged.net/)
+
+[![Requires BlueMap](https://img.shields.io/badge/requires-BlueMap%205.x-006EDE?style=flat-square)](https://modrinth.com/mod/bluemap)
 
 </div>
 
-## 🧊 What it does
+## What does this mod do?
 
-Takes blocks and transforms from a provider, meshes them into a vertex buffer and texture
-atlas, publishes them into BlueMap's web root, and draws them in BlueMap's three.js scene with
-smooth interpolated motion.
+[BlueMap](https://modrinth.com/mod/bluemap) renders your world as a 3D map in the browser,
+but only the terrain. BlueMap3D takes things that move, turns them into real 3D geometry
+with their real textures, and puts them into BlueMap 3D scene as they move.
 
-With no addons registered it loads, logs one line, and never touches a tick again.
+**On its own it does nothing.** You want one of the add-ons:
 
-> **Hard rule:** core references Create, Sable and CC:Tweaked **nowhere**. No imports, no
-> classpath dependency, no soft-compat shims. That is what makes the module split trivial and
-> core publishable on its own.
+| Add-on | Shows | Needs |
+| --- | --- | --- |
+| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions | [Create](https://modrinth.com/mod/create) |
+| **[BlueMap: Aeronautics](https://modrinth.com/mod/owyPt6vs)** | Airships, planes, cars | [Sable](https://modrinth.com/mod/sable) |
+| **[Bluemap: Computer Craft](https://modrinth.com/mod/uWqMFrYC)** | Turtles, with their labels and tools | [CC:Tweaked](https://modrinth.com/mod/cc-tweaked) |
 
-## 🔌 The API
+## Install
 
-Everything in `dev.duzo.bluemap3d.api` is stable from 1.0.0. Everything outside it is
-implementation and may change in any release.
+Server side. Players do not need it.
 
-### `SceneObjectProvider`
+Put it in `mods/` next to [BlueMap](https://modrinth.com/mod/bluemap), then add the add-ons.
 
-```java
-String id();                                          // "create_trains"
-Collection<? extends SceneObject> objects(ServerLevel level);
-default Collection<ResourceLocation> hiddenBlocks();  // blocks you draw, hide from tiles
-```
+## Settings
 
-Called on the server thread, once per publish interval per level. Keep it cheap - return
-already-tracked state rather than scanning chunks.
+`config/bluemap3d-server.toml`. All optional.
 
-### `SceneObject`
+| Setting | Default | Does |
+| --- | --- | --- |
+| `publishIntervalTicks` | `10` | How often positions update. Lower is smoother and uses more bandwidth |
+| `maxBlocksPerObject` | `20000` | Skips anything bigger than this |
+| `hideLiveBlocksFromTiles` | `true` | Stops things being drawn twice |
+| `tileReloadMinSeconds` | `-1` | Set to `5` so viewers see changed terrain without refreshing |
+| `useResourcePacks` | `true` | Real models and textures instead of flat colours |
+| `sources` | `[]` | Extra resource packs or jars to read models from |
+| `shapeFallback` | `false` | Blocks with no model get drawn as their outline shape instead of a cube |
+| `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have |
 
-```java
-String id();                     // stable across ticks, url-safe
-BlockVolume geometry();          // read only when geometryVersion() changes
-long geometryVersion();          // the one thing to get right
-Vec3 position();
-Quaternionf rotation();
-default String label();          // hover text
-ResourceKey<Level> dimension();
-```
+## Questions
 
-### `BlockVolume`
+**Nothing is on my map.**
+Install an add-on. This is just the library.
 
-| Factory | For |
-| --- | --- |
-| `single(state)` | one block - a turtle |
-| `region(source, min, max, pivot)` | a region of any level, including a sub-level - a ship |
-| `of(blocks, pivot)` | a sparse position-to-state map - a contraption or carriage |
+**Do players need it?**
+No, and it will not do anything for them if they install it.
 
-`region` and `of` copy eagerly, so the volume is a snapshot and safe to mesh off the server
-thread.
+**Some blocks are grey lumps.**
+Those blocks are drawn in code by the mod that adds them, so there is no model file to read.
+Turn on `shapeFallback`, or point `sources` at a resource pack that has models for them.
 
-### `ModelAttachment`
+**Everything is flat colours.**
+BlueMap has not downloaded the vanilla client jar yet, which is where textures come from.
+Accept the download in BlueMap `core.conf` and let it re-render.
 
-For geometry no block state describes - a turtle's modem, an item frame's contents, a sign's
-text. Returned from `BlockVolume.attachments()`, so it is cached against `geometryVersion()`
-like everything else.
+**Versions?**
+1.21.1, NeoForge, BlueMap 5.x.
 
-```java
-new ModelAttachment(BlockPos.ZERO,
-        ResourceLocation.parse("computercraft:block/turtle_speaker_left"),
-        Map.of());
-```
+## Making an add-on
 
-Naming an **item** model works too and gets you a real extruded tool, not a flat sprite -
-core builds the shape from the sprite the way the client does. Item models are authored
-face-on, so those want the optional `transform`, in block units.
+Implement `SceneObjectProvider` and register it. Anything with blocks and a position can be
+drawn. The API is `dev.duzo.bluemap3d.api` and the javadoc covers it with an example. No
+client side code, no JavaScript.
 
-### `BlueMap3D`
+## Links
 
-```java
-BlueMap3D.register(provider);              // any time in the mod lifecycle
-BlueMap3D.refreshArea(level, pos);         // your object changed the world
-```
+- [BlueMap](https://modrinth.com/mod/bluemap)
+- [Bug reports](https://github.com/duzos/bluemap3d/issues)
 
-## ⚠️ geometryVersion
+---
 
-Core caches the baked mesh against it.
+<div align="center">
+<sub>
 
-- **Bump it** when the shape changes: a block added, a consist changing, a hull damaged.
-- **Never bump it** when the object merely moves.
+This is a third party mod, not approved by or associated with the developers of BlueMap.
 
-Get this wrong and you re-mesh a ship hull every second.
+NOT AN OFFICIAL MINECRAFT SERVICE. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 
-## 🧪 Its dev server
-
-BlueMap and nothing else - the check that core standalone genuinely does nothing.
-
-```bash
-./gradlew :core:prepareDevServer -Paccept_licences
-./gradlew :core:runServer
-```
-
-## 🔬 Implementation notes
-
-The parts most likely to bite, all recorded in the source where they apply:
-
-- **Reaching the scene** - `bluemap3d.core.js` opens with why `window.BlueMap.Three` and
-  `mapViewer.markers` work, and what depends on where BlueMap's marker render pass sits.
-- **The mesh format** - `Bm3dWriter`, including why it is not glTF.
-- **Textures on a server** - `AssetIndex`, including block entities and why BlueMap's
-  `resourceExtensions.zip` matters.
-- **Drawing things twice** - `HiddenBlockPack`, including the config-vs-data directory trap
-  that fails silently.
-- **Terrain that changes** - `TileRefreshQueue` and the terrain reload in the client script.
-- **Blocks with no model** - `AssetIndex` and `ResourcePackSource`. A block the client
-  draws with a block-entity renderer has a stub model with no geometry, so nothing can be
-  read for it. Core names those in the log at the end of a bake rather than leaving you to
-  guess which grey lump was which, and `assets.shapeFallback` will draw them from their
-  voxel outline instead of a coloured cube.
-- **Volumes a long way from the origin** - `VolumeMesher`, on why the pivot is subtracted
-  first and in double. A Sable ship's blocks live out at about 2e7, past where a float can
-  tell one block from the next; get the order wrong and the model offsets are gone before
-  the pivot is ever subtracted. A turtle at spawn never shows it.
-
-## 🚂 How the Create addon works
-
-`addon-create` enumerates `AbstractContraptionEntity` and reports one `SceneObject` per
-contraption entity. That single choice is worth understanding before changing anything
-here:
-
-1. **Trains come free.** Create's four contraption entity types all extend that base, and a
-   train carriage is already one entity per carriage with its own server-updated pose. The
-   articulation that made trains look like the hardest addon is solved by Create before
-   this addon sees it. Bearings, gantries, pistons and minecart contraptions arrive through
-   the same enumeration, and a fifth subclass would need no change.
-2. **The registry is the wrong layer.** `Create.RAILWAYS` is what
-   [create_bluemap](https://modrinth.com/mod/create_bluemap) and `create-track-map` read,
-   and correctly so - they draw markers, and a dot on a 2D map wants the track graph. This
-   wants blocks and a pose, which the entity has and the registry does not. It also keeps
-   `Create` itself off the compile classpath, and with it Registrate.
-3. **The transform is Create's own.** `toGlobalVector` is
-   `anchor + off + applyRotation(local - off)` with `off = (0.5, 0.5, 0.5)`, which matches
-   core's `position + rotation * (local - pivot)` with a constant pivot. The rotation is
-   recovered by sampling `applyRotation` with the three basis vectors rather than by
-   reimplementing four subclasses.
-4. **`geometryVersion()` has to hash block states, not count them.** Create mutates a
-   contraption's states in place - doors, lamps, deployers - so a count alone never changes
-   and a carriage door would never re-mesh.
-
-`hiddenBlocks()` is not needed: a contraption's blocks are not in world chunks, so they are
-never drawn twice.
-
-The dependency is `compileOnly` on the `slim` artifact, which is one jar: every dependency
-in Create's pom is runtime-scoped, so nothing transitive arrives. The dev server takes the
-full jar instead, because it has to run and the loader needs the jar-in-jars.
+</sub>
+</div>

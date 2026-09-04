@@ -1,155 +1,98 @@
 <div align="center">
 
+<img src="img/logo.png" width="160" alt="logo">
+
 # BlueMap3D
 
-### Your turtles, ships and trains, as real 3D models on your live map.
+### Trains, airships and turtles on your BlueMap, moving in real time.
 
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-62B47A?style=for-the-badge)
 ![Server side](https://img.shields.io/badge/Server%20side-only-2D6FE0?style=for-the-badge)
 ![Licence](https://img.shields.io/badge/licence-LGPL--3.0-A42E2B?style=for-the-badge)
 
 [<img alt="neoforge" height="52" src="https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/neoforge_vector.svg">](https://neoforged.net/)
+[<img alt="modrinth" height="52" src="https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/modrinth_vector.svg">](https://modrinth.com/mod/bluemap3d)
 
 [![Requires BlueMap](https://img.shields.io/badge/requires-BlueMap%205.x-006EDE?style=flat-square)](https://modrinth.com/mod/bluemap)
 
 </div>
 
-## 🧊 What is it?
+## What does this mod do?
 
-Actual meshed blocks with their real textures, moving around inside BlueMap's 3D scene. Not
-POI markers, not overlays, not a coloured blob where a thing is - the thing itself, textured
-and lit like the terrain it sits on, updating live as it moves.
+[BlueMap](https://modrinth.com/mod/bluemap) renders your world as a 3D map you can open in a
+browser. It only draws terrain, so anything that moves is missing.
 
-Server side only. Nothing for players to install.
+This adds the moving stuff. Trains, airships, turtles, contraptions. Drawn with their real
+blocks and textures, updating as they move.
 
-## 🚢 The addons
+## Add-ons
 
-| Addon | Mod id | Shows | Status |
-| --- | --- | --- | --- |
-| **Turtles** | `bluemap3d_computercraft` | Live CC:Tweaked turtles, labelled, with their upgrades | ✅ Working |
-| **Ships** | `bluemap3d_sable` | Sable ships, named, which BlueMap cannot show at all today | ✅ Working |
-| **Create** | `bluemap3d_create` | Create trains and moving contraptions, one object each | ✅ Working |
+BlueMap3D on its own does nothing. Install at least one of these:
 
-Ships and contraptions are the interesting cases: their blocks live outside world chunks, so
-BlueMap has no way to draw them. Turtles are in world chunks, so BlueMap3D also hides them from the
-terrain tiles to stop them being drawn twice.
-
-## 📦 Install
-
-Drop **BlueMap3D** plus whichever addons you want into `mods/`, alongside
-[BlueMap](https://modrinth.com/mod/bluemap). Or take the bundle jar, which carries all three
-addons nested inside core.
-
-`bluemap3d` on its own is a library. With no addons installed it loads, logs one line, and
-never touches a tick again.
-
-## ⚙️ Config
-
-`config/bluemap3d-server.toml`:
-
-| Key | Default | Does |
+| Add-on | Shows | Needs |
 | --- | --- | --- |
-| `publishIntervalTicks` | `10` | How often object positions are republished. Do not set this slower than your objects turn, or a 180° turn resolves the wrong way round. |
-| `maxBlocksPerObject` | `20000` | Refuses to mesh anything bigger, so one absurd ship cannot stall a tick. |
-| `hideLiveBlocksFromTiles` | `true` | Stops blocks drawn live also being baked into terrain tiles. |
-| `tileReloadMinSeconds` | `-1` | Makes viewers re-download terrain that changed. Off by default because it acts on viewers unasked; `5` is a sensible value. |
-| `useResourcePacks` | `true` | Read real block models and textures rather than only map colours. |
-| `sources` | `[]` | Extra jars, zips or folders to search for models. |
+| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions | [Create](https://modrinth.com/mod/create) |
+| **[BlueMap: Aeronautics](https://modrinth.com/mod/owyPt6vs)** | Airships, planes, cars | [Sable](https://modrinth.com/mod/sable) |
+| **[Bluemap: Computer Craft](https://modrinth.com/mod/uWqMFrYC)** | Turtles, with their labels and tools | [CC:Tweaked](https://modrinth.com/mod/cc-tweaked) |
 
-## 🔌 Writing your own
+Trains and airships do not show up on a normal BlueMap at all. Once they are assembled their
+blocks are no longer in the world, so there is nothing for the map to render.
 
-The whole extension surface is one interface. You say what exists; core meshes it, publishes
-it, streams it and draws it. No client code, no JavaScript.
+## Install
 
-```java
-final class BeeHiveProvider implements SceneObjectProvider {
-    @Override public String id() {
-        return "bee_hives";
-    }
+Server side. Players do not need it.
 
-    @Override public Collection<? extends SceneObject> objects(ServerLevel level) {
-        List<SceneObject> out = new ArrayList<>();
-        for (MyHive hive : MyHiveTracker.in(level)) {
-            out.add(new SceneObject() {
-                public String id()                    { return "hive/" + hive.uuid(); }
-                public BlockVolume geometry()         { return BlockVolume.single(hive.blockState()); }
-                public long geometryVersion()         { return 1L; }   // shape never changes
-                public Vec3 position()                { return hive.center(); }
-                public Quaternionf rotation()         { return new Quaternionf().rotateY(hive.yaw()); }
-                public String label()                 { return hive.name(); }
-                public ResourceKey<Level> dimension() { return level.dimension(); }
-            });
-        }
-        return out;
-    }
-}
-```
+Put BlueMap3D in `mods/` next to [BlueMap](https://modrinth.com/mod/bluemap), add whichever
+add-ons you want, restart.
 
-Register it with `BlueMap3D.register(new BeeHiveProvider())` and you are done.
+## Settings
 
-**The one thing to get right** is `geometryVersion()`. Bump it when the *shape* changes;
-never when the object merely moves. A train travelling should cost one transform per carriage
-per tick and no meshing at all.
+`config/bluemap3d-server.toml`. You can ignore all of it.
 
-See **[core/README.md](core/README.md)** for the full API.
+| Setting | Default | Does |
+| --- | --- | --- |
+| `publishIntervalTicks` | `10` | How often positions update. Lower is smoother and uses more bandwidth |
+| `maxBlocksPerObject` | `20000` | Skips anything bigger than this |
+| `hideLiveBlocksFromTiles` | `true` | Stops things being drawn twice |
+| `tileReloadMinSeconds` | `-1` | Set to `5` so viewers see mined terrain update without refreshing |
+| `useResourcePacks` | `true` | Real models and textures instead of flat colours |
+| `sources` | `[]` | Extra resource packs to read models from |
+| `shapeFallback` | `false` | Blocks with no model get drawn as their outline shape instead of a cube |
+| `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have. Wheels, mainly |
 
-## 🔬 How it works
+## Questions
 
-Bake once, then stream. A block volume is meshed server-side into a vertex buffer and a
-texture atlas, written into BlueMap's web root, and after that only position and rotation go
-out. The browser interpolates between samples, so motion stays smooth however slowly the
-server publishes.
+**Do players need to install it?**
+No. It is server side.
 
-The injected script adds meshes straight to `bluemap.mapViewer.markers`, which is a real
-`THREE.Scene` rendered with the real camera - so objects get correct depth against terrain for
-free.
+**Does it lag the server?**
+Each object is drawn once, then it is only sent a position. A train running all day is
+cheap.
 
-The awkward part is textures. A dedicated server has no client assets, so blocks are meshed
-from resource packs, BlueMap's own `resourceExtensions.zip` (which is where chests and beds
-get their geometry), the vanilla client jar BlueMap downloaded, and finally every mod jar.
-Anything unresolved falls back to a solid cube in the block's map colour - correct shape, no
-texture, and only for that one block.
+**Does it change my existing map?**
+No, terrain renders the same as before.
 
-## 🧪 Testing it locally
+**Versions?**
+1.21.1, NeoForge, BlueMap 5.x.
 
-Every module has its own dev server.
+**Nothing is showing up.**
+Make sure the mod it needs is installed and the chunks are loaded. Things in unloaded chunks
+are not tracked.
 
-```bash
-./gradlew :addon-turtles:prepareDevServer -Paccept_licences
-./gradlew :addon-turtles:runServer
-```
+## Links
 
-Then open <http://localhost:8100>. That one spins up real CC:Tweaked from maven with five
-turtles running real Lua - four wandering, one quarrying. See
-**[addon-turtles/devserver](addon-turtles/devserver/README.md)**.
+- [BlueMap](https://modrinth.com/mod/bluemap)
+- [Bug reports](https://github.com/duzos/bluemap3d/issues)
 
-```bash
-./gradlew :addon-sable:prepareDevServer -Paccept_licences
-./gradlew :addon-sable:runServer
-```
+---
 
-The ships one builds two vessels, assembles them into real Sable sub-levels and flies one
-of them - yaw, roll and climb at once, so a wrong pivot reads as a swing. Sable publishes
-no maven, so its jar goes in `addon-sable/libs/` by hand. See
-**[addon-sable/devserver](addon-sable/devserver/README.md)**.
+<div align="center">
+<sub>
 
-## 🔨 Building
+This is a third party mod, not approved by or associated with the developers of BlueMap,
+Create, Create: Aeronautics, Sable or CC:Tweaked.
 
-```bash
-./gradlew build          # the four publishable modules
-./gradlew bundleJar      # single jar: core with the three addons nested
-```
+NOT AN OFFICIAL MINECRAFT SERVICE. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 
-Publishing the four separately needs no source changes, only not running `bundleJar`.
-
-## 🔗 Links
-
-- [BlueMap](https://modrinth.com/mod/bluemap) - required
-- [CC:Tweaked](https://modrinth.com/mod/cc-tweaked) - for the turtle addon
-
-## 🙏 Credits
-
-- [BlueMap](https://github.com/BlueMap-Minecraft/BlueMap) by Blue (Lukas Rieger) - and its
-  `resourceExtensions.zip`, which is where the block-entity geometry comes from.
-- [create_bluemap](https://modrinth.com/mod/create_bluemap) by Szedann - prior art for reading
-  Create's train data.
+</sub>
+</div>
