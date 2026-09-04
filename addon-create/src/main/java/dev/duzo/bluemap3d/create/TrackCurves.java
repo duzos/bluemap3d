@@ -10,6 +10,9 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -30,6 +33,8 @@ import java.util.Set;
  */
 public final class TrackCurves {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("BlueMap3D/Create");
+
     private TrackCurves() {
     }
 
@@ -43,14 +48,26 @@ public final class TrackCurves {
     public static List<BezierConnection> find(ServerLevel level) {
         ResourceKey<Level> dimension = level.dimension();
         List<BezierConnection> curves = new ArrayList<>();
+        int graphs = 0;
+        int nodes = 0;
+        int otherDimension = 0;
+        int unresolved = 0;
+        int turns = 0;
+        int secondary = 0;
 
         for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values()) {
+            graphs++;
             for (TrackNodeLocation location : graph.getNodes()) {
-                if (location.dimension != dimension) {
+                nodes++;
+                // equals, not ==: a ResourceKey compared by identity is a silent way to
+                // drop every node in the level if one ever reaches us un-interned.
+                if (!dimension.equals(location.dimension)) {
+                    otherDimension++;
                     continue;
                 }
                 TrackNode node = graph.locateNode(location);
                 if (node == null) {
+                    unresolved++;
                     continue;
                 }
                 for (Map.Entry<TrackNode, TrackEdge> entry : graph.getConnectionsFrom(node).entrySet()) {
@@ -58,12 +75,26 @@ public final class TrackCurves {
                     if (!edge.isTurn()) {
                         continue;
                     }
+                    turns++;
                     BezierConnection turn = edge.getTurn();
                     if (turn.isPrimary()) {
                         curves.add(turn);
+                    } else {
+                        secondary++;
                     }
                 }
             }
+        }
+        if (CreateConfig.VERBOSE.get()) {
+            for (BezierConnection curve : curves) {
+                LOGGER.info("  curve {} -> {} (length {})", curve.bePositions.getFirst(),
+                        curve.bePositions.getSecond(), String.format("%.2f", curve.getLength()));
+            }
+            LOGGER.info("Curve discovery in {}: {} graph(s), {} node(s), {} turn edge(s) -> "
+                            + "{} curve(s) kept. Skipped: {} node(s) in another dimension, "
+                            + "{} node(s) that would not resolve, {} secondary copies.",
+                    dimension.location(), graphs, nodes, turns, curves.size(),
+                    otherDimension, unresolved, secondary);
         }
         return curves;
     }
@@ -83,11 +114,16 @@ public final class TrackCurves {
     public static List<TrackEdge> findStraightEdges(ServerLevel level) {
         ResourceKey<Level> dimension = level.dimension();
         List<TrackEdge> edges = new ArrayList<>();
-        Set<TrackEdge> seen = new HashSet<>();
+        // Keyed on the unordered pair of endpoints, not on the edge itself. Create hands
+        // out a distinct TrackEdge instance per direction and the class overrides neither
+        // equals nor hashCode, so an identity set collapses nothing and every straight run
+        // gets walked twice - measured as 36 edges for 18 physical runs.
+        Set<String> seen = new HashSet<>();
+        int duplicates = 0;
 
         for (TrackGraph graph : Create.RAILWAYS.trackNetworks.values()) {
             for (TrackNodeLocation location : graph.getNodes()) {
-                if (location.dimension != dimension) {
+                if (!dimension.equals(location.dimension)) {
                     continue;
                 }
                 TrackNode node = graph.locateNode(location);
@@ -99,11 +135,24 @@ public final class TrackCurves {
                     if (edge.isTurn()) {
                         continue;
                     }
-                    if (seen.add(edge)) {
+                    String a = edge.node1.getLocation().toString();
+                    String b = edge.node2.getLocation().toString();
+                    String pair = a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
+                    if (seen.add(pair)) {
                         edges.add(edge);
+                    } else {
+                        duplicates++;
                     }
                 }
             }
+        }
+        if (CreateConfig.VERBOSE.get()) {
+            for (TrackEdge e : edges) {
+                LOGGER.info("  straight {} -> {}", e.node1.getLocation().getLocation(),
+                        e.node2.getLocation().getLocation());
+            }
+            LOGGER.info("Straight edge discovery in {}: {} edge(s) kept, {} reverse "
+                    + "duplicate(s) collapsed.", dimension.location(), edges.size(), duplicates);
         }
         return edges;
     }

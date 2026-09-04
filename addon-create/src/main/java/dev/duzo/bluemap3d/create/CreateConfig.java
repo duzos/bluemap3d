@@ -18,6 +18,9 @@ public final class CreateConfig {
     /** Hard ceiling on the number of curve grid cells published per level. */
     public static final ModConfigSpec.IntValue MAX_CURVE_OBJECTS;
 
+    /** Log what track discovery and cell building actually saw. See CurvedTrackProvider. */
+    public static final ModConfigSpec.BooleanValue VERBOSE;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -49,6 +52,16 @@ public final class CreateConfig {
                         "cells are simply left off the map until the count drops back down or",
                         "this is raised.")
                 .defineInRange("maxCurveObjects", 128, 1, 100_000);
+
+        VERBOSE = builder
+                .comment("Log, once per level, exactly what track discovery found and what each",
+                        "grid cell was built from: nodes walked, curves kept and skipped, blocks",
+                        "collected, attachments emitted.",
+                        "",
+                        "Track that renders with holes in it is almost always something being",
+                        "dropped quietly upstream of the geometry, and without this there is no",
+                        "way to tell which stage dropped it.")
+                .define("verboseTrackLogging", false);
 
         builder.pop();
 

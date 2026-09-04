@@ -240,9 +240,15 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             }
             int cellX = (int) (key >> 32);
             int cellZ = (int) (long) key;
+            List<BezierConnection> cellCurves = curvesByCell.getOrDefault(key, List.of());
+            Map<BlockPos, BlockState> cellBlocks = trackBlocksByCell.getOrDefault(key, Map.of());
             SceneObject object = toSceneObject(dimension, dimId, gridSize, cellX, cellZ,
-                    curvesByCell.getOrDefault(key, List.of()),
-                    trackBlocksByCell.getOrDefault(key, Map.of()));
+                    cellCurves, cellBlocks);
+            if (CreateConfig.VERBOSE.get()) {
+                LOGGER.info("Cell {},{}: {} curve(s), {} track block(s) -> {}",
+                        cellX, cellZ, cellCurves.size(), cellBlocks.size(),
+                        object == null ? "nothing published" : "published");
+            }
             if (object != null) {
                 out.add(object);
             }
@@ -295,16 +301,22 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             ServerLevel level, List<TrackEdge> edges, int gridSize) {
         Map<Long, Map<BlockPos, BlockState>> byCell = new LinkedHashMap<>();
         for (TrackEdge edge : edges) {
-            TrackNodeLocation a = edge.node1.getLocation();
-            TrackNodeLocation b = edge.node2.getLocation();
-            int steps = Math.max(Math.abs(b.getX() - a.getX()),
-                    Math.max(Math.abs(b.getY() - a.getY()), Math.abs(b.getZ() - a.getZ())));
+            // getLocation() rather than the inherited getX/getY/getZ. TrackNodeLocation
+            // extends Vec3i but is NOT in block space: its constructor multiplies x and z
+            // by two before rounding, so a node can sit on a half block, and it carries
+            // sub-block height separately in yOffsetPixels. Reading the raw components as
+            // world coordinates walks a line twice as long as the real one, lands on air
+            // the whole way, and finds nothing at all.
+            Vec3 a = edge.node1.getLocation().getLocation();
+            Vec3 b = edge.node2.getLocation().getLocation();
+            int steps = (int) Math.ceil(Math.max(Math.abs(b.x - a.x),
+                    Math.max(Math.abs(b.y - a.y), Math.abs(b.z - a.z))));
             for (int i = 0; i <= steps; i++) {
-                float t = steps == 0 ? 0f : (float) i / steps;
-                BlockPos pos = new BlockPos(
-                        Math.round(a.getX() + (b.getX() - a.getX()) * t),
-                        Math.round(a.getY() + (b.getY() - a.getY()) * t),
-                        Math.round(a.getZ() + (b.getZ() - a.getZ()) * t));
+                double t = steps == 0 ? 0d : (double) i / steps;
+                BlockPos pos = BlockPos.containing(
+                        a.x + (b.x - a.x) * t,
+                        a.y + (b.y - a.y) * t,
+                        a.z + (b.z - a.z) * t);
                 BlockState state = level.getBlockState(pos);
                 if (!(state.getBlock() instanceof TrackBlock) || !state.hasProperty(TrackBlock.SHAPE)) {
                     continue;
