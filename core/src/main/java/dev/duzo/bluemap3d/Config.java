@@ -18,6 +18,9 @@ public final class Config {
     /** Ceiling on the independently turning parts one object may have. */
     public static final ModConfigSpec.IntValue MAX_SPIN_NODES_PER_OBJECT;
 
+    /** Hard ceiling on the attachments in one object, for the volumes maxBlocksPerObject cannot see. */
+    public static final ModConfigSpec.IntValue MAX_ATTACHMENTS_PER_OBJECT;
+
     /** Minimum seconds between forcing a viewer's browser to re-download terrain tiles. */
     public static final ModConfigSpec.IntValue TILE_RELOAD_MIN_SECONDS;
 
@@ -68,6 +71,14 @@ public final class Config {
                         "Going over the limit does not lose geometry: the extra parts are",
                         "drawn in place like any other attachment, they simply do not turn.")
                 .defineInRange("maxSpinNodesPerObject", 32, 0, 1024);
+
+        MAX_ATTACHMENTS_PER_OBJECT = builder
+                .comment("Refuse to mesh any single object with more than this many",
+                        "attachments. maxBlocksPerObject cannot catch an attachments-only",
+                        "volume - a block count of zero clears it no matter how much",
+                        "attachment geometry rides along - so this is the only ceiling an",
+                        "object made purely of model pieces ever has to pass.")
+                .defineInRange("maxAttachmentsPerObject", 4096, 1, 100_000);
 
         TILE_RELOAD_MIN_SECONDS = builder
                 .comment("Minimum seconds between telling a viewer's browser to re-download",

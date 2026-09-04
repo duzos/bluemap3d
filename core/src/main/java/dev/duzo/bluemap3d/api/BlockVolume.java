@@ -286,4 +286,65 @@ public interface BlockVolume {
             }
         };
     }
+
+    /**
+     * A volume with no blocks at all, made entirely of attachments.
+     *
+     * <p>Some geometry has no block behind it - it is authored purely as model pieces
+     * laid out in space, the way a piece of track is drawn along a curve. {@link #of}
+     * cannot express that: an empty block map is indistinguishable from "nothing here"
+     * and returns {@link #EMPTY}, discarding whatever attachments came with it. This is
+     * the escape hatch for when there genuinely are no blocks and the attachments are
+     * the whole object.
+     *
+     * <p>Bounds are taken as parameters rather than derived, because there are no block
+     * positions to derive them from, and both the mesher's neighbour lookups and the
+     * browser's bounding volume need an extent regardless.
+     *
+     * <p>{@link #blockCount()} is 0 here, same as {@link #EMPTY}. That means
+     * {@code maxBlocksPerObject} cannot see this volume coming - a block count of zero
+     * clears any block-based cap no matter how much attachment geometry rides along
+     * with it. {@code maxAttachmentsPerObject} in {@link dev.duzo.bluemap3d.Config}
+     * exists to cover exactly this gap; do not add an attachments-only volume without it.
+     *
+     * @param min         inclusive lower corner of the volume's bounding box
+     * @param max         inclusive upper corner of the volume's bounding box
+     * @param pivot       rotation origin, in the same coordinates as {@code min}/{@code max}
+     * @param attachments the models that make up this volume; must not be empty, or there
+     *                    would be nothing to draw at all
+     */
+    static BlockVolume attachments(BlockPos min, BlockPos max, Vec3 pivot,
+                                   Collection<ModelAttachment> attachments) {
+        Objects.requireNonNull(min, "min");
+        Objects.requireNonNull(max, "max");
+        Objects.requireNonNull(pivot, "pivot");
+        Objects.requireNonNull(attachments, "attachments");
+        BlockPos lo = min.immutable();
+        BlockPos hi = max.immutable();
+        Collection<ModelAttachment> extras = java.util.List.copyOf(attachments);
+        BlockState air = Blocks.AIR.defaultBlockState();
+
+        return new BlockVolume() {
+            @Override public Collection<ModelAttachment> attachments() {
+                return extras;
+            }
+            @Override public BlockPos min() {
+                return lo;
+            }
+            @Override public BlockPos max() {
+                return hi;
+            }
+            @Override public Vec3 pivot() {
+                return pivot;
+            }
+            @Override public BlockState stateAt(int x, int y, int z) {
+                return air;
+            }
+            @Override public void forEachBlock(BlockConsumer consumer) {
+            }
+            @Override public int blockCount() {
+                return 0;
+            }
+        };
+    }
 }

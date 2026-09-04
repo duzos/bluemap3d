@@ -61,12 +61,27 @@ public final class VolumeMesher {
      */
     public BakedMesh mesh(BlockVolume volume) {
         int blocks = volume.blockCount();
-        if (blocks == 0) {
+        List<ModelAttachment> allAttachments = new ArrayList<>(volume.attachments());
+        if (blocks == 0 && allAttachments.isEmpty()) {
             return empty();
         }
         if (blocks > maxBlocks) {
             LOGGER.warn("Refusing to mesh a volume of {} blocks (limit {}). "
                     + "Raise bluemap3d.maxBlocksPerObject if this is expected.", blocks, maxBlocks);
+            return empty();
+        }
+        // A block count of zero clears the check above no matter how many attachments
+        // ride along with it, which is exactly the case an attachments-only volume
+        // (BlockVolume.attachments) is built for. This is the ceiling that actually
+        // sees it. Refusing the whole object rather than dropping the excess matches
+        // maxBlocks: a missing object with a warning in the log is a far more visible
+        // failure than a silently truncated one, and for a volume that is nothing but
+        // attachments, dropping the excess could be most of what there was to draw.
+        int maxAttachments = Config.MAX_ATTACHMENTS_PER_OBJECT.get();
+        if (allAttachments.size() > maxAttachments) {
+            LOGGER.warn("Refusing to mesh a volume of {} attachments (limit {}). "
+                    + "Raise bluemap3d.maxAttachmentsPerObject if this is expected.",
+                    allAttachments.size(), maxAttachments);
             return empty();
         }
 
@@ -156,7 +171,7 @@ public final class VolumeMesher {
         // would draw it and it would vanish outright.
         List<ModelAttachment> staticAttachments = new ArrayList<>();
         List<ModelAttachment> spinning = new ArrayList<>();
-        for (ModelAttachment attachment : volume.attachments()) {
+        for (ModelAttachment attachment : allAttachments) {
             (attachment.spin() == null ? staticAttachments : spinning).add(attachment);
         }
         int cap = Config.MAX_SPIN_NODES_PER_OBJECT.get();
