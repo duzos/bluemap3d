@@ -18,13 +18,12 @@ import java.util.Map;
  * {@link ResourcePackSource}'s job, and it hands this class an already-resolved texture
  * map so there is only one place that understands {@code #ref} indirection.
  *
- * <p>Every face becomes a quad. Some OBJ exporters emit triangulated meshes only, so a
- * triangle is emitted as a degenerate quad with its last vertex repeated - the smallest
- * change that lets it flow through {@link MeshBuilder#quad}, and a zero-area fourth edge
- * costs nothing on the GPU. A face with more than three vertices is truncated to its
- * first three rather than fanned into multiple quads, since that is the only shape this
- * class has ever had to draw; see the {@code warnedNGon} log below. Every quad gets a
- * {@code null} cull face and a {@code null} shade face: an OBJ mesh has no notion of
+ * <p>Every face becomes one or more quads. Some OBJ exporters emit triangulated meshes
+ * only, so a triangle is emitted as a degenerate quad with its last vertex repeated - the
+ * smallest change that lets it flow through {@link MeshBuilder#quad}, and a zero-area
+ * fourth edge costs nothing on the GPU. A face with more than four vertices is fanned from
+ * its first corner into several quads rather than truncated, so an n-gon still draws in
+ * full. Every quad gets a {@code null} cull face and a {@code null} shade face: an OBJ mesh has no notion of
  * sitting flush against a neighbouring block to cull against, and no single nominal
  * facing to shade by, so it is drawn at full brightness and never culled - the same
  * treatment {@code emitAttachment} already gives every attachment.
@@ -59,7 +58,6 @@ final class ObjModelReader {
         // has usually made the same mistake on every one of its faces.
         boolean warnedIndex = false;
         boolean warnedMaterial = false;
-        boolean warnedNGon = false;
 
         for (String rawLine : objText.split("\n")) {
             String line = rawLine.trim();
@@ -118,11 +116,7 @@ final class ObjModelReader {
                     int corners0 = tokens.length - 1;
                     float[][] pos = new float[corners0][];
                     float[][] uv = new float[corners0][];
-                    boolean ok = corners0 >= 3;
-                    if (!ok && !warnedNGon) {
-                        LOGGER.debug("Obj face has fewer than three vertices: {}", line);
-                        warnedNGon = true;
-                    }
+                    boolean ok = true;
                     for (int i = 0; ok && i < corners0; i++) {
                         int[] indices = parseFaceVertex(tokens[i + 1]);
                         if (indices == null) {
