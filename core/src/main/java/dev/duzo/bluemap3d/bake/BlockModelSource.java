@@ -78,4 +78,15 @@ public interface BlockModelSource {
     default boolean isFaithful() {
         return true;
     }
+
+    /**
+     * What this source drew instead of the real model, for the unresolved report.
+     *
+     * <p>Only asked of sources that say they are not {@link #isFaithful() faithful}.
+     * Naming it matters because the fallbacks are not equally bad: "voxel shape" is a
+     * block that reads correctly at map zoom, "map colour" is a lump.
+     */
+    default String approximation() {
+        return "map colour";
+    }
 }

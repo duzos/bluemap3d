@@ -6,6 +6,7 @@ import dev.duzo.bluemap3d.bake.AssetIndex;
 import dev.duzo.bluemap3d.bake.BlockModelSource;
 import dev.duzo.bluemap3d.bake.MapColorSource;
 import dev.duzo.bluemap3d.bake.ResourcePackSource;
+import dev.duzo.bluemap3d.bake.ShapeSource;
 import dev.duzo.bluemap3d.bake.VolumeMesher;
 import dev.duzo.bluemap3d.publish.HiddenBlockPack;
 import dev.duzo.bluemap3d.publish.TileRefreshQueue;
@@ -70,7 +71,13 @@ public final class BlueMap3DMod {
             List<BlockModelSource> sources = new ArrayList<>();
             if (Config.USE_RESOURCE_PACKS.get()) {
                 assets = AssetIndex.open(configuredSources(), blueMapRoot);
-                sources.add(new ResourcePackSource(assets));
+                ResourcePackSource packs = new ResourcePackSource(assets);
+                sources.add(packs);
+                // Between the real models and the coloured cube: a block whose model has
+                // no geometry still has a voxel shape and a particle sprite.
+                if (Config.SHAPE_FALLBACK.get()) {
+                    sources.add(new ShapeSource(packs));
+                }
             }
             // Always last, and always present: every block gets at least a shaped cube.
             sources.add(new MapColorSource());

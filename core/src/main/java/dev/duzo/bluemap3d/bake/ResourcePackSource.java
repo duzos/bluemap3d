@@ -132,6 +132,47 @@ public final class ResourcePackSource implements BlockModelSource {
     }
 
     /**
+     * The sprite a block showers when it breaks, or {@code null} if it has none.
+     *
+     * <p>This is the one texture a geometry-less model still carries, which is what makes
+     * {@link ShapeSource} possible: a block drawn entirely in code has no {@code elements}
+     * to read, but it always declares a {@code particle}, because the client needs
+     * something to break into.
+     *
+     * <p>Resolved through the same variant selection and parent chain as geometry, so a
+     * blockstate that sends different variants at different models gets the right one.
+     */
+    String particleTexture(BlockState state) {
+        ResourceLocation block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        JsonObject blockstate = json("assets/" + block.getNamespace() + "/blockstates/" + block.getPath() + ".json");
+        if (blockstate == null) {
+            return null;
+        }
+        try {
+            JsonObject variant = null;
+            if (blockstate.has("variants")) {
+                variant = firstOf(selectVariant(blockstate.getAsJsonObject("variants"), state));
+            } else if (blockstate.has("multipart")) {
+                for (JsonElement partEl : blockstate.getAsJsonArray("multipart")) {
+                    JsonObject part = partEl.getAsJsonObject();
+                    if (!part.has("when") || matches(part.getAsJsonObject("when"), state)) {
+                        variant = firstOf(part.get("apply"));
+                        break;
+                    }
+                }
+            }
+            if (variant == null || !variant.has("model")) {
+                return null;
+            }
+            JsonObject textures = resolveTexturesOnly(variant.get("model").getAsString(), Map.of());
+            return textures == null ? null : resolveTextureRef(textures, "#particle");
+        } catch (RuntimeException e) {
+            LOGGER.debug("Could not find a particle texture for {}: {}", state, e.toString());
+            return null;
+        }
+    }
+
+    /**
      * Picks the variant whose key matches the state's properties.
      *
      * <p>Keys are comma-separated {@code name=value} pairs; a blockstate file only lists
@@ -491,7 +532,7 @@ public final class ResourcePackSource implements BlockModelSource {
      * Minecraft's default uv when a face declares none: the texture is sampled from the
      * element's own footprint on that axis pair, with v measured from the top.
      */
-    private static float[] autoUv(float[] f, float[] t, Direction face) {
+    static float[] autoUv(float[] f, float[] t, Direction face) {
         float x0 = f[0], y0 = f[1], z0 = f[2];
         float x1 = t[0], y1 = t[1], z1 = t[2];
         return switch (face) {
@@ -508,7 +549,7 @@ public final class ResourcePackSource implements BlockModelSource {
      * Four corners of a face of the box {@code from..to}, in the order
      * {@code (u0,v0) (u1,v0) (u1,v1) (u0,v1)} so they line up with the uv window.
      */
-    private static float[] faceCorners(float[] f, float[] t, Direction face) {
+    static float[] faceCorners(float[] f, float[] t, Direction face) {
         float x0 = f[0], y0 = f[1], z0 = f[2];
         float x1 = t[0], y1 = t[1], z1 = t[2];
         return switch (face) {
@@ -522,7 +563,7 @@ public final class ResourcePackSource implements BlockModelSource {
     }
 
     /** Expands a {@code [u0,v0,u1,v1]} window to four corners, with face rotation. */
-    private static float[] uvCorners(float[] uv, int rotation) {
+    static float[] uvCorners(float[] uv, int rotation) {
         float u0 = uv[0], v0 = uv[1], u1 = uv[2], v1 = uv[3];
         float[][] corners = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
 

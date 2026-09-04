@@ -89,7 +89,8 @@ public final class VolumeMesher {
             }
             if (source == null || !source.isFaithful()) {
                 unresolved.add(net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                        .getKey(state.getBlock()).toString());
+                        .getKey(state.getBlock())
+                        + " (" + (source == null ? "not drawn" : source.approximation()) + ")");
             }
             if (source == null) {
                 return;
@@ -141,7 +142,7 @@ public final class VolumeMesher {
         }
 
         if (!unresolved.isEmpty()) {
-            LOGGER.info("No model found for {} block type(s); drawn as map-colour cubes: {}. "
+            LOGGER.info("No model found for {} block type(s); approximated: {}. "
                             + "Supply models for these through bluemap3d.assets.sources "
                             + "if you want them textured.",
                     unresolved.size(), String.join(", ", unresolved));

@@ -24,6 +24,9 @@ public final class Config {
     /** Best-effort attempt to hide live-drawn blocks from BlueMap's tiles. See the comment. */
     public static final ModConfigSpec.BooleanValue HIDE_LIVE_BLOCKS;
 
+    /** Experimental: draw unmodelled blocks from their voxel shape rather than as a cube. */
+    public static final ModConfigSpec.BooleanValue SHAPE_FALLBACK;
+
     /**
      * Extra jars, zips or directories to search for block models and textures, in
      * priority order.
@@ -93,6 +96,23 @@ public final class Config {
                         "BlueMap's own resourcepacks directory is picked up automatically too.",
                         "Example: [\"resourcepacks/Faithful.zip\", \"client-1.21.1.jar\"]")
                 .defineList("sources", java.util.List.of(), () -> "", o -> o instanceof String);
+
+            SHAPE_FALLBACK = builder
+                .comment("EXPERIMENTAL. Before giving up on a block and drawing it as a",
+                        "map-colour cube, build it out of its voxel outline shape textured",
+                        "with its particle sprite.",
+                        "",
+                        "Only ever applies to blocks whose model has no geometry, which is",
+                        "the handful a mod draws entirely in code - Create's belt is the",
+                        "known one. Those become the right silhouette in the right texture",
+                        "instead of a coloured lump: a belt reads as a slab, a modded chest",
+                        "as a 14x14x14 box in its own wood.",
+                        "",
+                        "It is an approximation and says so - the blocks it draws are still",
+                        "named in the 'no model found' line at the end of a bake, because a",
+                        "real model supplied through 'sources' is still better. Off by",
+                        "default while it is being evaluated.")
+                .define("shapeFallback", false);
 
         HIDE_LIVE_BLOCKS = builder
                 .comment("Hide blocks that a provider draws live from BlueMap's own terrain",
