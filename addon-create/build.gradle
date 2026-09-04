@@ -39,7 +39,7 @@ publishMods {
 
     modrinth {
         accessToken = providers.environmentVariable("MODRINTH_TOKEN")
-        projectId = providers.environmentVariable("MODRINTH_PROJECT_CREATE")
+        projectId = "rxpPQGD1"
         minecraftVersions.addAll(mcVersions)
         requires { slug = "bluemap3d" }
         requires { slug = "create" }

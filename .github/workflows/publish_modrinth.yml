@@ -42,7 +42,3 @@ jobs:
         run: ./gradlew :${{ inputs.module }}:publishModrinth
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          MODRINTH_PROJECT_BLUEMAP3D: ${{ secrets.MODRINTH_PROJECT_BLUEMAP3D }}
-          MODRINTH_PROJECT_TURTLES: ${{ secrets.MODRINTH_PROJECT_TURTLES }}
-          MODRINTH_PROJECT_SABLE: ${{ secrets.MODRINTH_PROJECT_SABLE }}
-          MODRINTH_PROJECT_CREATE: ${{ secrets.MODRINTH_PROJECT_CREATE }}
