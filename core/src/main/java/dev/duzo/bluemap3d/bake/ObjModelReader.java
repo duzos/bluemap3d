@@ -18,14 +18,16 @@ import java.util.Map;
  * {@link ResourcePackSource}'s job, and it hands this class an already-resolved texture
  * map so there is only one place that understands {@code #ref} indirection.
  *
- * <p>Every face becomes a quad. Create's meshes are triangulated throughout, so a
+ * <p>Every face becomes a quad. Some OBJ exporters emit triangulated meshes only, so a
  * triangle is emitted as a degenerate quad with its last vertex repeated - the smallest
  * change that lets it flow through {@link MeshBuilder#quad}, and a zero-area fourth edge
- * costs nothing on the GPU. Every quad gets a {@code null} cull face and a {@code null}
- * shade face: an OBJ mesh has no notion of sitting flush against a neighbouring block to
- * cull against, and no single nominal facing to shade by, so it is drawn at full
- * brightness and never culled - the same treatment {@code emitAttachment} already gives
- * every attachment.
+ * costs nothing on the GPU. A face with more than three vertices is truncated to its
+ * first three rather than fanned into multiple quads, since that is the only shape this
+ * class has ever had to draw; see the {@code warnedNGon} log below. Every quad gets a
+ * {@code null} cull face and a {@code null} shade face: an OBJ mesh has no notion of
+ * sitting flush against a neighbouring block to cull against, and no single nominal
+ * facing to shade by, so it is drawn at full brightness and never culled - the same
+ * treatment {@code emitAttachment} already gives every attachment.
  */
 final class ObjModelReader {
 
@@ -57,6 +59,7 @@ final class ObjModelReader {
         // has usually made the same mistake on every one of its faces.
         boolean warnedIndex = false;
         boolean warnedMaterial = false;
+        boolean warnedNGon = false;
 
         for (String rawLine : objText.split("\n")) {
             String line = rawLine.trim();
@@ -108,9 +111,13 @@ final class ObjModelReader {
                         continue;
                     }
 
-                    // Only the first three vertices are used. Create's meshes are
-                    // triangulated throughout, and a proper n-gon fan is not worth the
-                    // complexity for a format we only ever see as triangles.
+                    // Only the first three vertices are used. A quad or n-gon face would
+                    // be silently cut down to a triangle here, so warn once rather than
+                    // producing geometry that is quietly missing area.
+                    if (tokens.length > 4 && !warnedNGon) {
+                        LOGGER.debug("Obj face has more than three vertices; only the first three are used: {}", line);
+                        warnedNGon = true;
+                    }
                     float[] corners = new float[12];
                     float[] uvCorners = new float[8];
                     boolean ok = true;

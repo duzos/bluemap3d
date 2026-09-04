@@ -463,14 +463,21 @@ public final class ResourcePackSource implements BlockModelSource {
     /** The single model json a ref names, unresolved - no parent walk, no elements search. */
     private JsonObject modelJson(String modelRef) {
         ResourceLocation loc = parse(modelRef);
-        if (loc == null) {
-            return null;
-        }
+        return loc == null ? null : json(modelJsonPath(loc));
+    }
+
+    /**
+     * The resource-pack path of a model's json file. A bare name with no namespaced
+     * folder defaults to {@code block/}, since that is what every plain block-model
+     * reference in a blockstate variant means; a ref that already names {@code block/}
+     * or {@code item/} is left alone.
+     */
+    private static String modelJsonPath(ResourceLocation loc) {
         String path = loc.getPath();
         if (!path.startsWith("block/") && !path.startsWith("item/") && !path.contains("/")) {
             path = "block/" + path;
         }
-        return json("assets/" + loc.getNamespace() + "/models/" + path + ".json");
+        return "assets/" + loc.getNamespace() + "/models/" + path + ".json";
     }
 
     private static boolean isObjLoader(JsonObject model) {
@@ -559,11 +566,7 @@ public final class ResourcePackSource implements BlockModelSource {
             if (loc == null) {
                 break;
             }
-            String path = loc.getPath();
-            if (!path.startsWith("block/") && !path.startsWith("item/") && !path.contains("/")) {
-                path = "block/" + path;
-            }
-            JsonObject model = json("assets/" + loc.getNamespace() + "/models/" + path + ".json");
+            JsonObject model = json(modelJsonPath(loc));
             if (model == null) {
                 break;
             }
