@@ -4,6 +4,7 @@ import com.simibubi.create.content.trains.graph.TrackEdge;
 import com.simibubi.create.content.trains.graph.TrackNodeLocation;
 import com.simibubi.create.content.trains.track.BezierConnection;
 import com.simibubi.create.content.trains.track.TrackBlock;
+import com.simibubi.create.content.trains.track.TrackBlockEntity;
 import com.simibubi.create.content.trains.track.TrackShape;
 import dev.duzo.bluemap3d.api.BlockVolume;
 import dev.duzo.bluemap3d.api.ModelAttachment;
@@ -13,10 +14,17 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ChunkHolder;
+import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -24,6 +32,7 @@ import org.joml.Quaternionf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -228,6 +237,9 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         }
         Map<Long, Map<BlockPos, BlockState>> trackBlocksByCell =
                 collectTrackBlocks(level, straightEdges, gridSize);
+        if (CreateConfig.VERBOSE.get()) {
+            diagnoseTrackBlockCoverage(level, trackBlocksByCell);
+        }
 
         // A cell needs an object once for its curves and once for its diagonal track
         // blocks, but a curve rarely lands in the same cell as one of these blocks, so
@@ -355,6 +367,140 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             }
         }
         return byCell;
+    }
+
+    // ------------------------------------------------------------------------------------
+    // TEMPORARY DIAGNOSTIC. Delete diagnoseTrackBlockCoverage, scanLoadedChunk and their one
+    // call site in objects() once the missing-track-piece report is closed out. They exist
+    // only to measure whether collectTrackBlocks' line-walk misses real track blocks, not to
+    // fix anything themselves.
+    // ------------------------------------------------------------------------------------
+
+    /**
+     * Ground-truth scan of every loaded chunk for OBJ-modelled track blocks, logged against
+     * what {@link #collectTrackBlocks} actually found. Gated behind {@link CreateConfig#VERBOSE}
+     * like every other diagnostic in this class - costs nothing with it off.
+     *
+     * <p>This deliberately does not use the block-entity map as a shortcut, even though
+     * {@link TrackBlockEntity} exists. {@code javap} on {@code TrackBlock.newBlockEntity} shows
+     * it returns {@code null} whenever the block's {@code HAS_BE} property is false, which
+     * Create sets on most of the pieces in a connected run so only one of them owns the real
+     * block entity. Scanning block entities would therefore silently skip every
+     * {@code HAS_BE=false} piece - exactly the kind of gap this diagnostic exists to rule out
+     * rather than reproduce - so it reads block states directly instead.
+     *
+     * <p>Loaded chunks are found via the package-protected {@link ChunkMap#getChunks()}
+     * (reached reflectively) rather than probing {@link ServerLevel#hasChunkAt} over some
+     * guessed area or scanning a radius around every player: it hands back exactly the chunk
+     * holders the server already has live, force-loaded ones included. Each holder is then
+     * read with {@link net.minecraft.server.level.GenerationChunkHolder#getChunkIfPresent}
+     * (decompiled: it only inspects a future that has already completed, and returns
+     * {@code null} rather than starting one) - so nothing here can trigger a load or a
+     * generation the way {@link ServerLevel#getChunkState} or {@code getBlockState} on an
+     * unloaded position can.
+     */
+    private static void diagnoseTrackBlockCoverage(
+            ServerLevel level, Map<Long, Map<BlockPos, BlockState>> walkResultsByCell) {
+        Iterable<ChunkHolder> holders;
+        try {
+            Method getChunks = ChunkMap.class.getDeclaredMethod("getChunks");
+            getChunks.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Iterable<ChunkHolder> cast =
+                    (Iterable<ChunkHolder>) getChunks.invoke(level.getChunkSource().chunkMap);
+            holders = cast;
+        } catch (ReflectiveOperationException e) {
+            LOGGER.warn("Track block coverage diagnostic could not enumerate loaded chunks", e);
+            return;
+        }
+
+        Map<BlockPos, TrackShape> groundTruth = new HashMap<>();
+        for (ChunkHolder holder : holders) {
+            // ChunkStatus.FULL, not some lower status - a chunk short of FULL has not run
+            // block placement yet and reading it would just report false negatives, not a
+            // narrower-but-still-correct answer.
+            ChunkAccess access = holder.getChunkIfPresent(ChunkStatus.FULL);
+            if (access instanceof LevelChunk chunk) {
+                scanLoadedChunk(chunk, groundTruth);
+            }
+        }
+
+        Map<BlockPos, TrackShape> walked = new HashMap<>();
+        for (Map<BlockPos, BlockState> cell : walkResultsByCell.values()) {
+            for (Map.Entry<BlockPos, BlockState> entry : cell.entrySet()) {
+                walked.put(entry.getKey(), entry.getValue().getValue(TrackBlock.SHAPE));
+            }
+        }
+
+        int missed = 0;
+        for (Map.Entry<BlockPos, TrackShape> entry : groundTruth.entrySet()) {
+            if (!walked.containsKey(entry.getKey())) {
+                missed++;
+                if (missed <= 60) {
+                    LOGGER.info("MISSED {} shape={}", entry.getKey(), entry.getValue());
+                }
+            }
+        }
+        if (missed > 60) {
+            LOGGER.info("MISSED ... {} more not printed", missed - 60);
+        }
+
+        int extra = 0;
+        for (BlockPos pos : walked.keySet()) {
+            if (!groundTruth.containsKey(pos)) {
+                extra++;
+                LOGGER.info("EXTRA {} - the walk found this but the ground-truth scan did not", pos);
+            }
+        }
+
+        LOGGER.info("Track block coverage: scan found {}, walk found {}, {} missed by the walk, "
+                        + "{} found by the walk but not the scan",
+                groundTruth.size(), walked.size(), missed, extra);
+    }
+
+    /**
+     * Scans one already-loaded chunk's block states for OBJ-modelled track blocks.
+     *
+     * <p>Y range: whatever {@link ChunkAccess#getSections()} actually returns for this chunk,
+     * i.e. the level's own build height. That is not a narrowing - no block, track or
+     * otherwise, can exist outside it - so it cannot hide a track block; it is called out here
+     * only so a future reader does not mistake "iterate the sections the chunk actually has"
+     * for an arbitrary cutoff someone picked.
+     *
+     * <p>{@link LevelChunkSection#maybeHas} runs before the 4096-position inner loop: it is a
+     * palette-only check, so a section with no track block at all - the overwhelming majority
+     * of every loaded chunk - costs a handful of comparisons instead of 4096 block reads.
+     */
+    private static void scanLoadedChunk(LevelChunk chunk, Map<BlockPos, TrackShape> out) {
+        ChunkPos chunkPos = chunk.getPos();
+        LevelChunkSection[] sections = chunk.getSections();
+        for (int i = 0; i < sections.length; i++) {
+            LevelChunkSection section = sections[i];
+            if (section == null || section.hasOnlyAir()) {
+                continue;
+            }
+            if (!section.maybeHas(state -> state.getBlock() instanceof TrackBlock)) {
+                continue;
+            }
+            int sectionMinY = chunk.getSectionYFromSectionIndex(i) * 16;
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        BlockState state = section.getBlockState(x, y, z);
+                        if (!(state.getBlock() instanceof TrackBlock) || !state.hasProperty(TrackBlock.SHAPE)) {
+                            continue;
+                        }
+                        TrackShape shape = state.getValue(TrackBlock.SHAPE);
+                        if (!OBJ_MODELLED_SHAPES.contains(shape)) {
+                            continue;
+                        }
+                        BlockPos pos = new BlockPos(
+                                chunkPos.getMinBlockX() + x, sectionMinY + y, chunkPos.getMinBlockZ() + z);
+                        out.put(pos, shape);
+                    }
+                }
+            }
+        }
     }
 
     /**
