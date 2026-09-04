@@ -377,6 +377,11 @@ public final class ResourcePackSource implements BlockModelSource {
      */
     private void appendModel(List<ModelQuad> out, String modelRef, int rotX, int rotY,
                              Map<String, String> overrides, BlockState state) {
+        JsonObject entry = modelJson(modelRef);
+        if (entry != null && isObjLoader(entry)) {
+            appendObjModel(out, modelRef, entry, overrides);
+            return;
+        }
         JsonObject model = resolveModel(modelRef, overrides);
         if (model == null) {
             return;
@@ -453,6 +458,87 @@ public final class ResourcePackSource implements BlockModelSource {
                 out.add(new ModelQuad(cull, face, corners, uvCorners(uv, uvRotation), texture, tint));
             }
         }
+    }
+
+    /** The single model json a ref names, unresolved - no parent walk, no elements search. */
+    private JsonObject modelJson(String modelRef) {
+        ResourceLocation loc = parse(modelRef);
+        if (loc == null) {
+            return null;
+        }
+        String path = loc.getPath();
+        if (!path.startsWith("block/") && !path.startsWith("item/") && !path.contains("/")) {
+            path = "block/" + path;
+        }
+        return json("assets/" + loc.getNamespace() + "/models/" + path + ".json");
+    }
+
+    private static boolean isObjLoader(JsonObject model) {
+        return model.has("loader") && "neoforge:obj".equals(model.get("loader").getAsString());
+    }
+
+    /**
+     * A model wrapping an OBJ mesh instead of {@code elements} - some mods ship those for
+     * parts that do not decompose into cuboids. Reads the mesh and its material file
+     * through the same {@link AssetIndex} as everything else, resolves the wrapper's
+     * texture map exactly like an element model would, and hands both to
+     * {@link ObjModelReader}, which knows nothing about resource packs or blocks.
+     */
+    private void appendObjModel(List<ModelQuad> out, String modelRef, JsonObject stub, Map<String, String> overrides) {
+        if (!stub.has("model")) {
+            return;
+        }
+        ResourceLocation objLoc = parse(stub.get("model").getAsString());
+        if (objLoc == null) {
+            return;
+        }
+        String objPath = "assets/" + objLoc.getNamespace() + "/" + objLoc.getPath();
+        byte[] objBytes = assets.read(objPath);
+        if (objBytes == null) {
+            LOGGER.debug("Obj model {} names mesh {} which is not available", modelRef, objPath);
+            return;
+        }
+        String objText = new String(objBytes, StandardCharsets.UTF_8);
+
+        // mtllib names a file in the same directory as the obj, not a resource location
+        // of its own.
+        String mtlText = null;
+        String mtlName = findMtllib(objText);
+        if (mtlName != null) {
+            int slash = objPath.lastIndexOf('/');
+            String mtlPath = (slash >= 0 ? objPath.substring(0, slash + 1) : "") + mtlName;
+            byte[] mtlBytes = assets.read(mtlPath);
+            if (mtlBytes != null) {
+                mtlText = new String(mtlBytes, StandardCharsets.UTF_8);
+            } else {
+                LOGGER.debug("Obj model {} names material {} which is not available", modelRef, mtlPath);
+            }
+        }
+
+        // The stub itself carries no elements, but resolveTexturesOnly already walks a
+        // chain like this for item models - it is exactly what an obj wrapper's "parent"
+        // is for, and its materials only ever point at a #ref into this same map.
+        JsonObject textures = resolveTexturesOnly(modelRef, overrides);
+        Map<String, String> resolvedTextures = new HashMap<>();
+        for (String key : textures.keySet()) {
+            String resolved = resolveTextureRef(textures, "#" + key);
+            if (resolved != null) {
+                resolvedTextures.put(key, resolved);
+            }
+        }
+
+        boolean flipV = stub.has("flip_v") && stub.get("flip_v").getAsBoolean();
+        out.addAll(ObjModelReader.read(objText, mtlText, resolvedTextures, flipV));
+    }
+
+    private static String findMtllib(String objText) {
+        for (String rawLine : objText.split("\n")) {
+            String line = rawLine.trim();
+            if (line.startsWith("mtllib ")) {
+                return line.substring("mtllib ".length()).trim();
+            }
+        }
+        return null;
     }
 
     /**
