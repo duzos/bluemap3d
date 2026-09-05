@@ -44,7 +44,7 @@
 
     var FEED_URL = "assets/bluemap3d/entities3d.json";
     var LOG = "[BlueMap3D]";
-    var BUILD = "core-8";
+    var BUILD = "core-9";
 
     /* Verbose per-poll diagnostics. Off by default - at two polls a second it is a lot of
      * console for a working install. Turn it on at runtime with
@@ -521,26 +521,26 @@
                     group.position.set(
                         node.axis.x * offset, node.axis.y * offset, node.axis.z * offset);
                 } else if (node.kind === KIND_ORBIT) {
-                    /* group.position is pivot plus the orbit offset; nodeMesh's own
-                     * position (set once, in replaceMesh) is -pivot, so the two cancel
-                     * and the part ends up displaced from its baked position by exactly
-                     * the orbit offset - never rotated, per KIND_ORBIT's contract.
+                    /* An orbit node's "pivot" is a displacement, not a point: the vector
+                     * from the centre of the circle out to where the part was baked. Turn
+                     * that one vector about the axis and you have the part's position on
+                     * the circle, relative to the same centre.
                      *
-                     * The (c - 1) in place of c makes the displacement relative to the
-                     * orbit's own zero-angle pose instead of relative to the pivot: at
-                     * theta = 0 the offset is exactly zero, so the baked geometry's
-                     * position IS the rest pose, whichever direction perpendicularBasis
-                     * happens to have picked for u. Without the -1, callers would need to
-                     * know that axis-derived direction to bake a correct rest pose, and
-                     * any change to perpendicularBasis would silently move every orbiting
-                     * part's rest position. */
+                     * group.position ends up as that turned vector while nodeMesh's own
+                     * position (set once, in replaceMesh) stays at minus the unturned
+                     * one, so the two cancel exactly at theta = 0 - the baked pose IS the
+                     * rest pose - and away from zero they differ by the orbit offset and
+                     * nothing else. The group's quaternion is never touched, so the part
+                     * is displaced and never turned, which is the whole of KIND_ORBIT's
+                     * contract.
+                     *
+                     * The rest direction has to come from the file like this. Deriving it
+                     * from the axis instead - the only other thing a node carries - gives
+                     * a direction that is right for one axis direction and wrong for the
+                     * three others, which is exactly how a bogey pin ended up orbiting a
+                     * point beside its axle rather than the axle. */
                     var theta = node.period > 0 ? value / node.period : 0;
-                    var c = Math.cos(theta), s = Math.sin(theta);
-                    group.position.set(
-                        node.pivot.x + node.radius * ((c - 1) * node.orbitU.x + s * node.orbitV.x),
-                        node.pivot.y + node.radius * ((c - 1) * node.orbitU.y + s * node.orbitV.y),
-                        node.pivot.z + node.radius * ((c - 1) * node.orbitU.z + s * node.orbitV.z)
-                    );
+                    group.position.copy(node.pivot).applyAxisAngle(node.axis, theta);
                 } else if (node.kind === KIND_RATE) {
                     /* Driven by wall-clock time, not by "value" (the odometer) - a
                      * KIND_RATE part turns even while its object stands still, so travel
@@ -560,22 +560,6 @@
                 }
             }
         }
-    }
-
-    /**
-     * An arbitrary orthonormal basis (u, v) perpendicular to axis, used to give an orbit
-     * node a stable zero-angle direction. Picking the world axis least aligned with
-     * `axis` as the seed for the first cross product keeps this well-conditioned for
-     * every axis direction, including ones straight up - unlike rollTravel's roll
-     * direction below, an orbit has no "no meaningful direction" case to fall back on.
-     */
-    function perpendicularBasis(axis) {
-        var ax = Math.abs(axis.x), ay = Math.abs(axis.y), az = Math.abs(axis.z);
-        var seed = (ax <= ay && ax <= az) ? new THREE.Vector3(1, 0, 0)
-            : (ay <= az ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
-        var u = new THREE.Vector3().crossVectors(seed, axis).normalize();
-        var v = new THREE.Vector3().crossVectors(axis, u).normalize();
-        return {u: u, v: v};
     }
 
     var _scratch = null;
@@ -837,7 +821,7 @@
      * over the buffer with no copying:
      *
      *   0   char[4]     "BM3D"
-     *   4   u32         format version (1, 2, 3 or 4)
+     *   4   u32         format version (1 to 5)
      *   8   u32         vertex count
      *   12  u32         index count
      *   16  u32         atlas url byte length
@@ -875,7 +859,7 @@
             throw new Error("not a .bm3d file");
         }
         var version = view.getUint32(4, true);
-        if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+        if (version < 1 || version > 5) {
             throw new Error("unsupported .bm3d version " + version);
         }
 
@@ -955,14 +939,6 @@
                     period: period,
                     rate: rate
                 };
-                if (kind === KIND_ORBIT) {
-                    /* Computed once per node rather than per frame: the axis never
-                     * changes for the node's lifetime, and this is called once per
-                     * cached mesh resource, shared by every object using it. */
-                    var basis = perpendicularBasis(axis);
-                    node.orbitU = basis.u;
-                    node.orbitV = basis.v;
-                }
                 nodes.push(node);
             }
         }
@@ -1009,7 +985,13 @@
             /* Centred on the pivot rather than fitted to the geometry, because the part
                rotates about that pivot: a sphere fitted to the static pose is swept outside
                by anything whose pivot is off-centre, and the part then gets frustum culled
-               while still plainly on screen. */
+               while still plainly on screen.
+
+               A KIND_ORBIT or KIND_OSCILLATE node has no pivot point to centre on, so this
+               centres on a near-origin vector instead and the sphere comes out larger than
+               the part needs. That errs the safe way - an over-large sphere costs a part
+               being drawn slightly more often than necessary, never a visible part being
+               culled - and these are the smallest nodes in any mesh anyway. */
             var maxDistSq = 0;
             var end = node.indexStart + node.indexCount;
             for (var j = node.indexStart; j < end; j++) {

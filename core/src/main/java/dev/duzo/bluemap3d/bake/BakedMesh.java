@@ -40,7 +40,13 @@ public record BakedMesh(
     public static final int KIND_SPIN = 0;
     /** {@link Node#kind()}: slides along {@code axis}, offset {@code radius * sin(travel / period)}. */
     public static final int KIND_OSCILLATE = 1;
-    /** {@link Node#kind()}: orbits {@code pivot} at {@code radius}, angle {@code travel / period}. */
+    /**
+     * {@link Node#kind()}: displaced, never turned, by {@code pivot} turned about
+     * {@code axis} through {@code travel / period} minus {@code pivot} itself. For this
+     * kind alone {@code pivot} is a displacement rather than a point - the vector from
+     * the orbit's centre to the part's baked rest position - so the rest pose needs no
+     * zero-angle reference agreed separately with the browser.
+     */
     public static final int KIND_ORBIT = 2;
     /** {@link Node#kind()}: turns about {@code axis} at a constant {@code rate}, independent of travel. */
     public static final int KIND_RATE = 3;

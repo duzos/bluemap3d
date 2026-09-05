@@ -148,33 +148,44 @@ public record ModelAttachment(BlockPos at, ResourceLocation model, Map<String, S
      * fixed - a bogey pin. Unlike {@link Spin}, the geometry never turns; only its
      * position moves.
      *
-     * <p>The browser displaces the part from its baked position by {@code radius} times
-     * the difference between the current angle ({@code travel / period}, measured in a
-     * plane perpendicular to {@code axis}) and angle zero, so the displacement is always
-     * zero at {@code travel = 0}. Bake the part where it should sit at rest, and it will
-     * orbit from there - the caller never needs to know which direction in that plane the
-     * browser treats as its own zero-angle reference.
+     * <p>Bake the part where it should sit at rest, and give {@code pivot} as the centre
+     * of the circle relative to that rest position. Those two together fix the orbit
+     * completely: the vector from the pivot back to the part is both the radius and the
+     * direction the part sits in at angle zero, and the browser gets its displacement by
+     * turning that one vector about {@code axis}. Which is why there is no radius here -
+     * the pivot already carries it, and a separate figure could only ever disagree with
+     * it.
      *
-     * @param pivot  the point the part orbits, in the model's own 0..16 space
+     * <p>That is not a tidying-up. The earlier shape of this record left the zero-angle
+     * direction unstated, so the browser had to derive one from {@code axis} alone; the
+     * derived direction is only correct for whichever axis direction it happens to agree
+     * with, and the same crank pin then orbited the axle on a bogey laid one way and some
+     * point beside the axle on a bogey laid the other.
+     *
+     * @param pivot  the centre of the circle, relative to the part's own model origin, in
+     *               the model's own 0..16 space. Must be non-zero. A component along
+     *               {@code axis} is harmless - it simply never moves
      * @param axis   the orbit's axis, in the model's own 0..16 space. Normalised on
      *               construction
-     * @param radius the orbit's radius, in the model's own 0..16 space
-     * @param period the divisor in {@code travel / period} above, in the model's own
-     *               0..16 space (converted the same way radius is). A full orbit takes
-     *               {@code 2 * PI * period} of travel, not {@code period} itself.
+     * @param period the divisor in {@code travel / period}, in the model's own 0..16
+     *               space. A full orbit takes {@code 2 * PI * period} of travel, not
+     *               {@code period} itself.
      */
-    public record Orbit(Vector3f pivot, Vector3f axis, float radius, float period) implements Motion {
+    public record Orbit(Vector3f pivot, Vector3f axis, float period) implements Motion {
         public Orbit {
             Objects.requireNonNull(pivot, "pivot");
             Objects.requireNonNull(axis, "axis");
             if (axis.lengthSquared() < 1.0e-20f) {
                 throw new IllegalArgumentException("axis must be non-zero");
             }
+            // A zero pivot is not a degenerate orbit, it is a missing one: with the part
+            // sitting on its own orbit centre there is no rest direction to turn and
+            // nothing would ever move.
+            if (pivot.lengthSquared() < 1.0e-20f) {
+                throw new IllegalArgumentException("pivot must be non-zero");
+            }
             pivot = new Vector3f(pivot);
             axis = new Vector3f(axis).normalize();
-            if (!(radius > 0)) {
-                throw new IllegalArgumentException("radius must be positive, was " + radius);
-            }
             if (!(period > 0)) {
                 throw new IllegalArgumentException("period must be positive, was " + period);
             }

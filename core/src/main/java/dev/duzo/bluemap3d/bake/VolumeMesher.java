@@ -315,13 +315,29 @@ public final class VolumeMesher {
                     // that conversion happens, and every caller passes period in that
                     // space regardless of what unit its own source figure started in.
                     oscillate.amplitude() / 16f * s, oscillate.period() / 16f * s, 0f);
-            case ModelAttachment.Orbit orbit -> new BakedMesh.Node(
-                    BakedMesh.KIND_ORBIT, indexStart, indexCount,
-                    pivotFor(orbit.pivot(), matrix, attachment, volumePivot),
-                    axisFor(orbit.axis(), matrix),
-                    // See the Oscillate case above: period is scaled the same way as
-                    // radius here, not left raw.
-                    orbit.radius() / 16f * s, orbit.period() / 16f * s, 0f);
+            case ModelAttachment.Orbit orbit -> {
+                // An orbit's node carries a displacement, not a point: the vector from
+                // the orbit's centre back to the part's own rest position, which is what
+                // the browser turns about the axis to get the offset. Deriving it here
+                // rather than in the browser is the whole point - the browser sees only
+                // an axis, and an axis alone does not say which way round the axis the
+                // part rests.
+                //
+                // transformDirection, so the attachment's own translation drops out and
+                // its rotation and scale do not: the pivot is given relative to the
+                // part's model origin, so the vector back from it is a direction through
+                // the attachment's frame, and its length is the orbit radius.
+                Vector3f offset = matrix.transformDirection(
+                        new Vector3f(orbit.pivot()).mul(-1f / 16f));
+                yield new BakedMesh.Node(
+                        BakedMesh.KIND_ORBIT, indexStart, indexCount,
+                        new float[]{offset.x, offset.y, offset.z},
+                        axisFor(orbit.axis(), matrix),
+                        // Written for a reader's benefit only - the browser reads the
+                        // radius straight off the vector above. See the Oscillate case
+                        // for why period is scaled here.
+                        offset.length(), orbit.period() / 16f * s, 0f);
+            }
             case ModelAttachment.Rate rate -> new BakedMesh.Node(
                     BakedMesh.KIND_RATE, indexStart, indexCount,
                     pivotFor(rate.pivot(), matrix, attachment, volumePivot),

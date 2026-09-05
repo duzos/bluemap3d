@@ -200,7 +200,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
     //                     BOGEY_PIN:            translate(0, 1, 0), rotateX(angle),
     //                                           translate(0, 0.25, 0), rotateX(-angle) - an
     //                                           eccentric crank pin that orbits the wheel
-    //                                           centre without spinning itself
+    //                                           centre without spinning itself, the trailing
+    //                                           rotateX(-angle) being what cancels the
+    //                                           self-rotation and leaves a pure translation
     //
     // All of these are in block units, in the model's own un-rotated (axis=z) frame - the
     // same frame every one of these obj models is authored in. If Create ever moves a
@@ -226,27 +228,32 @@ public final class ContraptionProvider implements SceneObjectProvider {
     //
     // Units: Create's own PISTON_STROKE and PIN_ORBIT_RADIUS below are read off the
     // decompiled render() in block units (0.25 for both), because that is the unit
-    // PoseStack.translate uses. ModelAttachment.Oscillate's amplitude and Orbit's radius
-    // are documented in the model's own 0..16 space instead, the same space
+    // SuperByteBuffer.translate uses. ModelAttachment.Oscillate's amplitude and Orbit's
+    // pivot are documented in the model's own 0..16 space instead, the same space
     // WHEEL_RADIUS_LARGE is already in - so both get multiplied by 16 below, exactly the
-    // inverse of VolumeMesher's nodeFor() dividing a Motion's radius back down by 16 when
-    // it bakes the node.
+    // inverse of VolumeMesher's nodeFor() dividing a Motion's figures back down by 16
+    // when it bakes the node.
     //
-    // Orbit is the subtle one. The browser has no way to know which direction in the
-    // rotation plane Create calls "angle zero" - it picks its own reference direction from
-    // axis alone (perpendicularBasis in bluemap3d.core.js) - so the orbit's phase, as seen
-    // in the browser, does not line up with Create's own rest-pose direction. That is
-    // harmless: the browser's orbit offset is measured relative to its own zero-angle
-    // pose, not relative to the pivot, so it is exactly zero at travel = 0 regardless of
-    // which direction perpendicularBasis picked. The pin's static transform below can
-    // therefore just be Create's true rest pose, with nothing folded in to cancel a
-    // phantom axis-derived offset, and only travel > 0 moves the pin.
+    // Orbit is the subtle one, and it was got wrong once. The pin's circle is centred on
+    // the wheel's own axle, which sits PIN_ORBIT_RADIUS below the pin's rest position -
+    // that is what Orbit's pivot has to say, and saying it is not optional. An orbit that
+    // states only a radius leaves the browser to guess which way round the axis the part
+    // rests, and the only thing it can guess from is the axis; a guess made from the axis
+    // is right for one of the four directions a bogey can be laid and wrong for the other
+    // three, so the same pin orbited its axle on a bogey laid one way and a point beside
+    // the axle on a bogey laid the other. With the pivot given, the browser turns the
+    // pivot-to-pin vector itself and the phase matches the wheel's own crank for every
+    // orientation, by construction.
     //
     // Do not "fix" the trailing rotateX(-angle) in Create's own pin transform - it belongs
     // there. translate(0,1,0) rotateX(angle) translate(0,0.25,0) rotateX(-angle) rotates
     // the crank arm to swing the pin's centre around a circle, then un-rotates by the same
     // angle so the pin itself never turns, only orbits - which is exactly Orbit's contract
-    // and exactly why this is not a Spin.
+    // and exactly why this is not a Spin. That cancellation is not an artefact of which
+    // way the calls compose, either: written order and reversed order give the same pure
+    // translation, differing only in which way round the circle it runs, and the wheel's
+    // own translate(0,1,0) rotateX(angle) settles that - only the reversed reading spins
+    // the wheel in place rather than swinging it around the block origin.
     //
     // Create's own figures are measured from a different origin than bogeyTransform's
     // block centre, so taken as written they hang the whole bogey in mid air above the
@@ -273,7 +280,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // BOGEY_PIN's angle-0 rest translate is 1.25 (1 + 0.25) - 0.75.
     private static final float BOGEY_PIN_HEIGHT = 0.5f;
 
-    // Create's own amplitude and orbit radius, both in block units, straight off the
+    // Create's own amplitude and crank throw, both in block units, straight off the
     // decompiled render(): translate(0, 0, 0.25 * sin(rad(angle))) for the piston, and
     // the 0.25 in translate(0, 0.25, 0) between the pin's two rotateX calls. Multiplied
     // by 16 below wherever ModelAttachment wants model-space (0..16) units instead.
@@ -803,13 +810,14 @@ public final class ContraptionProvider implements SceneObjectProvider {
         ModelAttachment.Spin wheelSpin = new ModelAttachment.Spin(WHEEL_PIVOT, WHEEL_AXIS, WHEEL_RADIUS_LARGE);
         out.add(new ModelAttachment(pos, LARGE_BOGEY_WHEEL_MODEL, Map.of(), wheelTransform, wheelSpin));
 
-        // Orbit's own pivot never affects where the browser draws the part - it is a pure
-        // translation, no rotation, so the pivot the browser adds cancels exactly against
-        // the pivot it subtracts (see bluemap3d.core.js's writeTransform, KIND_ORBIT). The
-        // origin is used here for the same reason WHEEL_PIVOT is: it is the model's own
-        // natural reference point, and nothing about Orbit's contract asks for another one.
+        // The pin orbits the wheel's axle, and the pin model's own origin is the pin, so
+        // the axle is PIN_ORBIT_RADIUS straight down from it - Create's own
+        // translate(0, 0.25, 0) between the two rotateX calls, read backwards. That single
+        // vector is the whole orbit: its length is the crank throw and its direction is
+        // where the pin rests at angle zero, which is what keeps the pin in the wheel's
+        // crank hole whichever way the bogey is laid.
         ModelAttachment.Orbit pinMotion = new ModelAttachment.Orbit(
-                new Vector3f(0f, 0f, 0f), WHEEL_AXIS, PIN_ORBIT_RADIUS * 16f, WHEEL_RADIUS_LARGE);
+                new Vector3f(0f, -PIN_ORBIT_RADIUS * 16f, 0f), WHEEL_AXIS, WHEEL_RADIUS_LARGE);
         out.add(new ModelAttachment(pos, BOGEY_PIN_MODEL, Map.of(),
                 bogeyTransform(axis, BOGEY_DROP + BOGEY_PIN_HEIGHT, 0f), pinMotion));
     }

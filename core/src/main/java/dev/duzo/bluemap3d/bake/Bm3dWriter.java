@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
  * <pre>
  *   offset  type          field
  *   0       char[4]       magic "BM3D"
- *   4       u32           format version (4)
+ *   4       u32           format version (5)
  *   8       u32           vertex count
  *   12      u32           index count
  *   16      u32           atlas url length in bytes
@@ -37,7 +37,10 @@ import java.nio.charset.StandardCharsets;
  *                           u32     kind, see {@link BakedMesh#KIND_SPIN} and siblings
  *                           u32     index start
  *                           u32     index count
- *                           f32[3]  pivot, block units relative to the object pivot
+ *                           f32[3]  pivot, block units relative to the object pivot -
+ *                                   except for {@code KIND_ORBIT}, where it is a
+ *                                   displacement rather than a point: the vector from the
+ *                                   orbit's centre to the part's baked rest position
  *                           f32[3]  axis, normalised
  *                           f32     radius, block units
  *                           f32     period, the divisor in {@code sin(travel / period)} /
@@ -49,6 +52,13 @@ import java.nio.charset.StandardCharsets;
  *                           f32     rate, radians per second - {@code KIND_RATE} only,
  *                                   present regardless for the same reason as period
  * </pre>
+ *
+ * <p>v5 changed no layout at all - it re-reads the {@code pivot} field of a
+ * {@code KIND_ORBIT} node as a displacement rather than as the point being orbited. The
+ * version had to move regardless, because mesh urls carry it and the browser fetches
+ * them {@code cache: "force-cache"}: a returning viewer holding a cached v4 body would
+ * otherwise decode its old orbit pivots under the new meaning and hang every orbiting
+ * part somewhere it never was.
  *
  * <p>v2 wrote the same trailer without the {@code kind} and {@code period} fields -
  * every one of its nodes was implicitly {@code KIND_SPIN}. v3 added those two fields but
@@ -67,7 +77,7 @@ import java.nio.charset.StandardCharsets;
 public final class Bm3dWriter {
 
     /** Current format version. Bumped only on an incompatible layout change. */
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
 
     private static final byte[] MAGIC = {'B', 'M', '3', 'D'};
 
