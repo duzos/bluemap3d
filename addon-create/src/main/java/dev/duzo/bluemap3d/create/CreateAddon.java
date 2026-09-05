@@ -22,12 +22,13 @@ public final class CreateAddon {
     // provider that reads it are kept as fields rather than built inline below.
     private final ChunkTracker chunks = new ChunkTracker();
     private final BearingProvider bearings = new BearingProvider(chunks);
+    private final ContraptionProvider contraptions = new ContraptionProvider();
 
     public CreateAddon(ModContainer container) {
         container.registerConfig(ModConfig.Type.SERVER, CreateConfig.SPEC);
         NeoForge.EVENT_BUS.register(chunks);
         NeoForge.EVENT_BUS.register(this);
-        BlueMap3D.register(new ContraptionProvider());
+        BlueMap3D.register(contraptions);
         BlueMap3D.register(new CurvedTrackProvider());
         BlueMap3D.register(bearings);
     }
@@ -36,5 +37,6 @@ public final class CreateAddon {
     public void onServerStopped(ServerStoppedEvent event) {
         chunks.clear();
         bearings.clear();
+        contraptions.clear();
     }
 }
