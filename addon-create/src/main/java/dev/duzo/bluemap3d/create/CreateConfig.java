@@ -21,6 +21,15 @@ public final class CreateConfig {
     /** Log what track discovery and cell building actually saw. See CurvedTrackProvider. */
     public static final ModConfigSpec.BooleanValue VERBOSE;
 
+    /** Whether to draw the rotating bearing cap. See {@link BearingProvider}. */
+    public static final ModConfigSpec.BooleanValue BEARING_CAPS;
+
+    /** Hard ceiling on the number of bearing caps published per level. */
+    public static final ModConfigSpec.IntValue MAX_BEARING_CAPS;
+
+    /** Ceiling on how many bearing poses {@link BearingProvider} remembers per level. */
+    public static final ModConfigSpec.IntValue MAX_BEARING_CACHE_ENTRIES;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -62,6 +71,42 @@ public final class CreateConfig {
                         "dropped quietly upstream of the geometry, and without this there is no",
                         "way to tell which stage dropped it.")
                 .define("verboseTrackLogging", false);
+
+        builder.pop();
+
+        builder.comment("A mechanical, windmill or clockwork bearing's rotating top face is",
+                        "drawn entirely by Create's own renderer - the block model BlueMap reads",
+                        "stops at the twelve pixel base - so without this every bearing on the map",
+                        "is missing its cap.")
+                .push("bearings");
+
+        BEARING_CAPS = builder
+                .comment("Draw the bearing cap, turning at the rate it actually turns in game.",
+                        "",
+                        "On by default. Purely additive - the cap is geometry BlueMap does not",
+                        "draw today, so there is nothing to hide and nothing to double-draw.",
+                        "A stationary bearing (unpowered, unassembled, or stalled) draws its cap",
+                        "stationary too; this reads the same interpolated-angle gate Create's own",
+                        "renderer does rather than a speed value, so it cannot get that wrong.")
+                .define("bearingCaps", true);
+
+        MAX_BEARING_CAPS = builder
+                .comment("Refuse to publish more than this many bearing caps for one level.",
+                        "",
+                        "Hit once and logged once, rather than degrading silently: the excess",
+                        "bearings are simply left without a cap until the count drops back down",
+                        "or this is raised.")
+                .defineInRange("maxBearingCaps", 256, 1, 100_000);
+
+        MAX_BEARING_CACHE_ENTRIES = builder
+                .comment("A bearing in an unloaded chunk does not tick, so it cannot be scanned",
+                        "for there - this addon instead remembers its last known pose and keeps",
+                        "publishing that, unchanged, until its chunk loads again. This bounds how",
+                        "many of those remembered poses are kept at once; the least recently seen",
+                        "ones are dropped first once the ceiling is hit. A restart rebuilds the",
+                        "cache from whatever actually loads, so this is a memory ceiling, not a",
+                        "correctness knob.")
+                .defineInRange("maxBearingCacheEntries", 4096, 1, 1_000_000);
 
         builder.pop();
 
