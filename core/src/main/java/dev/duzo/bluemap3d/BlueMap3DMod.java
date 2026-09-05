@@ -89,9 +89,13 @@ public final class BlueMap3DMod {
             // is the safety net for a layout the guess got wrong, and no-ops when the pack
             // is already correct. blueMapRoot is the *data* directory; packs live under the
             // config one, which is why the candidate list matters.
-            if (Config.HIDE_LIVE_BLOCKS.get()) {
-                HiddenBlockPack.write(blueMapRoots(blueMapRoot), hiddenBlocks());
-            }
+            //
+            // Called unconditionally, not just when the flag is on: an empty block list
+            // makes write() remove any pack already on disk, which is what makes turning
+            // the flag off (or removing the last addon that hides anything) reversible
+            // instead of leaving a stale pack behind forever.
+            HiddenBlockPack.write(blueMapRoots(blueMapRoot),
+                    Config.HIDE_LIVE_BLOCKS.get() ? hiddenBlocks() : List.of());
 
             TileRefreshQueue queue = new TileRefreshQueue(api);
             refreshQueue = queue;
@@ -124,15 +128,18 @@ public final class BlueMap3DMod {
      */
     @SubscribeEvent
     public void onServerAboutToStart(net.neoforged.neoforge.event.server.ServerAboutToStartEvent event) {
-        if (!BlueMap3D.hasProviders() || !Config.HIDE_LIVE_BLOCKS.get()) {
-            return;
-        }
         try {
             // Written even if the directories do not exist yet: on a fresh install BlueMap
             // creates them during its own startup, which is after this. Requiring them to
             // be there first would put us back to applying one start late, which is the
             // exact problem this exists to avoid.
-            HiddenBlockPack.write(blueMapRoots(null), hiddenBlocks());
+            //
+            // Not gated on hasProviders() or the flag: both cases still have to run write()
+            // with an empty block list so a pack from a previous start gets removed - the
+            // flag being turned off, or the addon that used to hide blocks being gone now,
+            // look identical to "nothing to hide" and must clean up the same way.
+            HiddenBlockPack.write(blueMapRoots(null),
+                    Config.HIDE_LIVE_BLOCKS.get() ? hiddenBlocks() : List.of());
         } catch (RuntimeException e) {
             LOGGER.debug("Could not pre-write the hidden-block pack: {}", e.toString());
         }

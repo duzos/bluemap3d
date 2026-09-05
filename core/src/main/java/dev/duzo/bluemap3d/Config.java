@@ -151,9 +151,9 @@ public final class Config {
                         "world chunks, which is why BlueMap cannot draw them at all and why",
                         "they never double up.",
                         "",
-                        "Turning this off after it has been on leaves the pack behind until the",
-                        "next start, and already-rendered tiles keep whatever they were",
-                        "rendered with until they are re-rendered ('/bluemap purge').")
+                        "Turning this off removes the generated pack on the next start, so the",
+                        "hidden blocks return - but already-rendered tiles keep whatever they",
+                        "were rendered with until they are re-rendered ('/bluemap purge').")
                 .define("hideLiveBlocksFromTiles", true);
 
         builder.pop();
