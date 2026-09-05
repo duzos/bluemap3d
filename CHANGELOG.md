@@ -61,8 +61,10 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Train carriages are walked straight off `Create.RAILWAYS.trains` instead, since a
   carriage's own entity can be absent for long stretches while the train it belongs to
   keeps moving.
-- Rotation is recovered by sampling Create's own `applyRotation` with the three basis
-  vectors, so all four contraption types go through one path and a fifth would too.
+- Rotation for the entity-backed contraptions is recovered by sampling Create's own
+  `applyRotation` with the three basis vectors, so they all go through one path and a new
+  contraption type would too. Train carriages derive theirs from the railway anchors
+  instead, since that path has no entity to ask.
 - A contraption that disassembles becomes a new entity, and so a new object with a fresh
   bake, at no cost.
 - Curved track is drawn as real geometry - Create draws it from a bezier at render time
