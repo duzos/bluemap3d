@@ -30,6 +30,12 @@ public final class CreateConfig {
     /** Ceiling on how many bearing poses {@link BearingProvider} remembers per level. */
     public static final ModConfigSpec.IntValue MAX_BEARING_CACHE_ENTRIES;
 
+    /** Whether to draw the train station flag. See {@link StationFlagProvider}. */
+    public static final ModConfigSpec.BooleanValue STATION_FLAGS;
+
+    /** Hard ceiling on the number of station flags published per level. */
+    public static final ModConfigSpec.IntValue MAX_STATION_FLAGS;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -107,6 +113,32 @@ public final class CreateConfig {
                         "cache from whatever actually loads, so this is a memory ceiling, not a",
                         "correctness knob.")
                 .defineInRange("maxBearingCacheEntries", 4096, 1, 1_000_000);
+
+        builder.pop();
+
+        builder.comment("A train station's flag - the pole and its raised or lowered",
+                        "indicator - is drawn entirely by Create's own renderer and referenced",
+                        "by no blockstate, so without this every station on the map is a bare",
+                        "plinth.")
+                .push("stationFlags");
+
+        STATION_FLAGS = builder
+                .comment("Draw the station flag, raised or lowered and textured for whether a",
+                        "train is present, absent, or the station is mid-assembly.",
+                        "",
+                        "On by default. Purely additive, same reasoning as bearingCaps above.",
+                        "The flag's yaw needs a loaded chunk to resolve once; until that has",
+                        "happened for a given station (since the server started) it is drawn",
+                        "with no flag at all rather than one at a guessed orientation.")
+                .define("stationFlags", true);
+
+        MAX_STATION_FLAGS = builder
+                .comment("Refuse to publish more than this many station flags for one level.",
+                        "",
+                        "Hit once and logged once, rather than degrading silently: the excess",
+                        "stations are simply left without a flag until the count drops back",
+                        "down or this is raised.")
+                .defineInRange("maxStationFlags", 256, 1, 100_000);
 
         builder.pop();
 

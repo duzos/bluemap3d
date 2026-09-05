@@ -10,7 +10,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 /**
  * Registers this addon's providers and its own config. See {@link ContraptionProvider},
- * {@link CurvedTrackProvider} and {@link BearingProvider}.
+ * {@link CurvedTrackProvider}, {@link BearingProvider} and {@link StationFlagProvider}.
  */
 @Mod(CreateAddon.MOD_ID)
 public final class CreateAddon {
@@ -23,6 +23,7 @@ public final class CreateAddon {
     private final ChunkTracker chunks = new ChunkTracker();
     private final BearingProvider bearings = new BearingProvider(chunks);
     private final ContraptionProvider contraptions = new ContraptionProvider();
+    private final StationFlagProvider stationFlags = new StationFlagProvider();
 
     public CreateAddon(ModContainer container) {
         container.registerConfig(ModConfig.Type.SERVER, CreateConfig.SPEC);
@@ -31,6 +32,7 @@ public final class CreateAddon {
         BlueMap3D.register(contraptions);
         BlueMap3D.register(new CurvedTrackProvider());
         BlueMap3D.register(bearings);
+        BlueMap3D.register(stationFlags);
     }
 
     @SubscribeEvent
@@ -38,5 +40,6 @@ public final class CreateAddon {
         chunks.clear();
         bearings.clear();
         contraptions.clear();
+        stationFlags.clear();
     }
 }
