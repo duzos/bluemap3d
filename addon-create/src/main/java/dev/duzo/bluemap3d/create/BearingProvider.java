@@ -89,18 +89,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  * rest angle be baked in the same way the spin is: passing a non-null angle inserts the
  * same rotation as the renderer's own first call, in the same place in the chain, about the
  * same axis. Skip that call (the moving case, see below) and what is left is the static
- * reorientation alone; core's {@code VolumeMesher} then carries a model-space axis of
- * {@code (0, 1, 0)} - the model's own authored spin axis - through that reorientation to
- * land on the true world axis, because the reorientation is exactly what maps the model's
- * local up onto {@code Direction.get(POSITIVE, FACING.getAxis())} in the first place.
+ * reorientation alone; core's {@code VolumeMesher} then carries the model-space axis handed
+ * to {@link ModelAttachment.Rate} through that reorientation to land on a world axis. The
+ * reorientation maps the model's local up onto {@code FACING} itself, not onto
+ * {@code Direction.get(POSITIVE, FACING.getAxis())} the way the live spin is always applied,
+ * so the two agree only when {@code FACING} already is the positive direction of its axis
+ * (UP, SOUTH, EAST); for the other three (DOWN, NORTH, WEST) {@link #rateOf} flips the
+ * model-space axis to compensate - see its own javadoc.
  *
  * <h2>Zero rate means no {@link ModelAttachment.Rate}, not a zero one</h2>
  * {@link ModelAttachment.Rate} rejects a non-positive {@code radiansPerSecond}, and a
  * bearing's per-tick advance is frequently exactly zero. So: a zero (post-quantisation)
  * rate bakes {@code restAngleDegrees} straight into the attachment's transform and carries
  * no {@link ModelAttachment.Motion} at all; a non-zero rate carries a {@link
- * ModelAttachment.Rate} and bakes only the static reorientation, with the sign of the rate
- * folded into the axis (negative degrees per tick becomes axis {@code (0, -1, 0)}) since
+ * ModelAttachment.Rate} and bakes only the static reorientation, with both the rate's sign
+ * and the facing's axis direction folded into the axis - see {@link #rateOf} - since
  * {@code Rate} itself must be positive.
  *
  * <h2>Discovery without force-loading a single chunk</h2>
@@ -333,7 +336,7 @@ public final class BearingProvider implements SceneObjectProvider {
         ResourceLocation model = pose.bakedWoodenTop ? TOP_WOODEN_MODEL : TOP_MODEL;
         Float bakedRestAngle = pose.bakedStationary ? (float) pose.bakedRestAngleBucket : null;
         Matrix4f transform = bearingTransform(pose.bakedFacing, bakedRestAngle);
-        ModelAttachment.Motion motion = pose.bakedStationary ? null : rateOf(pose.bakedRpm);
+        ModelAttachment.Motion motion = pose.bakedStationary ? null : rateOf(pose.bakedFacing, pose.bakedRpm);
         ModelAttachment attachment = new ModelAttachment(BlockPos.ZERO, model, Map.of(), transform, motion);
 
         // Expanded by one block in every direction: the 16x16 cap sweeps about 0.21 blocks
@@ -427,10 +430,22 @@ public final class BearingProvider implements SceneObjectProvider {
      * A {@link ModelAttachment.Rate} for a quantised, non-zero RPM. The sign folds into
      * the axis rather than the rate, since {@link ModelAttachment.Rate} rejects a
      * non-positive {@code radiansPerSecond} - see the class header.
+     *
+     * <p>The moving case bakes only the static reorientation (see {@link
+     * #bearingTransform}), never the spin itself, so core carries this model-space axis
+     * through that reorientation to reach the world-space spin axis. That reorientation
+     * maps the model's authored-for-UP axis onto {@code facing}, not onto
+     * {@code Direction.get(POSITIVE, facing.getAxis())} the way Create's own renderer
+     * always spins - the two agree only when {@code facing} is itself the positive
+     * direction of its axis (UP, SOUTH, EAST). For the other three (DOWN, NORTH, WEST) the
+     * reorientation lands the model axis on the negative of Create's axis, so the model
+     * axis is flipped here to compensate, independent of the RPM sign flip above.
      */
-    private static ModelAttachment.Rate rateOf(long rpm) {
+    private static ModelAttachment.Rate rateOf(Direction facing, long rpm) {
         float radiansPerSecond = Math.abs(rpm) * (float) (Math.PI / 30.0);
-        Vector3f axis = new Vector3f(0f, rpm < 0 ? -1f : 1f, 0f);
+        boolean negativeAxisDirection = facing.getAxisDirection() == Direction.AxisDirection.NEGATIVE;
+        boolean flip = (rpm < 0) ^ negativeAxisDirection;
+        Vector3f axis = new Vector3f(0f, flip ? -1f : 1f, 0f);
         return new ModelAttachment.Rate(MOTION_PIVOT, axis, radiansPerSecond);
     }
 
