@@ -377,6 +377,12 @@
     }
 
     function replaceMesh(entry, resource, row) {
+        /* Captured before anything below overwrites entry.nodes / entry.rateAngles, so a
+         * KIND_RATE part can keep turning smoothly through a re-bake instead of snapping
+         * back to zero. */
+        var oldNodes = entry.nodes;
+        var oldRateAngles = entry.rateAngles;
+
         if (entry.mesh) {
             root.remove(entry.mesh);
         }
@@ -426,10 +432,31 @@
          * elapsed rotation. */
         entry.rateAngles = new Array(resource.nodes.length);
         entry.rateLastTime = new Array(resource.nodes.length);
+
+        /* Carry over rateAngles when the new node table still means the same thing node
+         * for node, so a re-bake (e.g. a bearing's quantised RPM changing) does not make
+         * the cap visibly snap back to angle zero. Conservative on purpose: if the node
+         * count or per-node kind differs, the old angles no longer describe the new
+         * nodes and must be discarded. */
+        var canCarryRate = !!oldNodes && !!oldRateAngles && oldNodes.length === resource.nodes.length;
+        if (canCarryRate) {
+            for (var k = 0; k < resource.nodes.length; k++) {
+                if (oldNodes[k].kind !== resource.nodes[k].kind) {
+                    canCarryRate = false;
+                    break;
+                }
+            }
+        }
+
         for (var j = 0; j < resource.nodes.length; j++) {
             entry.odometers[j] = 0;
             entry.segmentTravel[j] = 0;
-            entry.rateAngles[j] = 0;
+            entry.rateAngles[j] = canCarryRate ? oldRateAngles[j] : 0;
+            /* Null even when carrying the angle over, so the next writeTransform call
+             * re-seeds the timestamp instead of integrating across the whole gap since
+             * the last frame before this rebuild - that gap would otherwise be counted
+             * as real elapsed rotation and the part would jump by however long the
+             * re-bake took. */
             entry.rateLastTime[j] = null;
         }
 
