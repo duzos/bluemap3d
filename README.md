@@ -57,7 +57,7 @@ add-ons you want, restart.
 | `tileReloadMinSeconds` | `-1` | Set to `5` so viewers see mined terrain update without refreshing |
 | `useResourcePacks` | `true` | Real models and textures instead of flat colours |
 | `sources` | `[]` | Extra resource packs to read models from |
-| `shapeFallback` | `false` | Blocks with no model get drawn as their outline shape instead of a cube |
+| `shapeFallback` | `true` | Blocks with no model get drawn as their outline shape instead of a cube |
 | `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have. Wheels, mainly |
 
 ## Questions

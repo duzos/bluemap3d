@@ -831,12 +831,12 @@
      *       u32[i]      indices
      *       u8[v*3]     vertex colours, RGB, zero-padded to a 4-byte boundary
      *
-     * v2, v3 and v4 only, immediately after the colour padding:
+     * v2 and up, immediately after the colour padding:
      *
      *       u32         static index count: the parent's draw range is [0, this)
      *       u32         node count
      *       node[]      one per animated part, in draw order:
-     *                     u32     kind (v3 only; a v2 node is always kind 0), see the
+     *                     u32     kind (v3+ only; a v2 node is always kind 0), see the
      *                             KIND_* constants below
      *                     u32     index start
      *                     u32     index count
@@ -848,7 +848,7 @@
      *                             2 * PI * period of travel, not period itself
      *                             (v3+ only; a v2 node has none, and kind 0 ignores
      *                             it anyway)
-     *                     f32     rate, radians per second (v4 only; kinds other than
+     *                     f32     rate, radians per second (v4+ only; kinds other than
      *                             KIND_RATE ignore it)
      */
     function decode(buffer) {

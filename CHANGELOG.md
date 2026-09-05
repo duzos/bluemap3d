@@ -9,6 +9,8 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
   into vertex colours, texture atlas packing.
 - Real block models read from resource packs, BlueMap's resource extensions, the vanilla
   client jar and mod jars, with a map-colour cube as a per-block fallback.
+- OBJ meshes (plus their MTL materials) read the same way, for the mods that ship less
+  box-shaped parts that way instead of as a JSON element model.
 - Block entities - chests, beds, shulker boxes, signs, banners - via BlueMap's own
   `resourceExtensions.zip`.
 - Meshes baked once and cached against `geometryVersion()`; only position and rotation are
@@ -29,6 +31,10 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - `ModelAttachment` for geometry no block state describes - a turtle's modem, an item
   frame's contents. Item models are extruded from their sprite, since vanilla item models
   carry no geometry of their own.
+- Attachments can move on their own as the object travels - spin about an axle, slide back
+  and forth, orbit a pivot, or turn at a constant rate - without needing a pose sampled
+  every publish, which would alias badly against anything turning faster than the map
+  publishes.
 - Blocks drawn live are hidden from BlueMap's terrain tiles, so nothing renders twice.
 - Optional live terrain reload, so a viewer sees mined terrain without refreshing the page.
 
@@ -49,10 +55,21 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 **Create (`bluemap3d_create`)**
 - Live Create contraptions: train carriages, minecart contraptions, gantry carriages,
   piston and pulley assemblies, and rotating bearings.
-- Found by enumerating `AbstractContraptionEntity`, so trains need no special case - Create
-  already spawns one entity per carriage, which is what makes a train on a curve bend
-  rather than render as a plank.
+- Minecart contraptions, gantry carriages and piston/pulley assemblies are found by
+  enumerating `AbstractContraptionEntity` - Create already spawns one entity per
+  contraption, so nothing is missed.
+- Train carriages are walked straight off `Create.RAILWAYS.trains` instead, since a
+  carriage's own entity can be absent for long stretches while the train it belongs to
+  keeps moving.
 - Rotation is recovered by sampling Create's own `applyRotation` with the three basis
   vectors, so all four contraption types go through one path and a fifth would too.
 - A contraption that disassembles becomes a new entity, and so a new object with a fresh
   bake, at no cost.
+- Curved track is drawn as real geometry - Create draws it from a bezier at render time
+  with no blocks of its own, so this addon walks the same bezier itself. Straight,
+  diagonal, ascending and crossing track all draw too.
+- Bogey wheels turn with the carriage they ride under, small and large bogeys both.
+- Bearing caps - mechanical, windmill and clockwork alike - turn at the rate they actually
+  turn in game, not a speed value that can be spinning while the bearing itself is stalled.
+- Station flags raise and lower and change texture for whether a train is present, absent,
+  or the station is mid-assembly.

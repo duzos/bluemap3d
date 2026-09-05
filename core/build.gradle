@@ -29,7 +29,6 @@ publishMods {
 
     modrinth {
         accessToken = providers.environmentVariable("MODRINTH_TOKEN")
-        // TODO: replace once the bluemap3d slug is reserved on Modrinth.
         projectId = "6qumn46W"
         minecraftVersions.addAll(mcVersions)
         requires { slug = "bluemap" }

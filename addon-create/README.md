@@ -43,8 +43,10 @@ Put BlueMap3D, BlueMap: Create and [Create](https://modrinth.com/mod/create) in 
 next to [BlueMap](https://modrinth.com/mod/bluemap). Works with the defaults.
 
 A config file appears at `config/bluemap3d_create-server.toml` after the first run, with
-settings for curved track (`curvedTrack`, `gridSize`, `maxCurveObjects`) and a verbose
-logging switch (`verboseTrackLogging`). Most servers will not need to touch it.
+settings for curved track (`curvedTrack`, `gridSize`, `maxCurveObjects`), bearing caps
+(`bearingCaps`, `maxBearingCaps`, `maxBearingCacheEntries`), station flags (`stationFlags`,
+`maxStationFlags`) and a verbose logging switch (`verboseTrackLogging`). Most servers will
+not need to touch it.
 
 ## Fast windmills look weird
 
