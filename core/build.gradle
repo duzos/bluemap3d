@@ -35,16 +35,20 @@ publishMods {
     }
     curseforge {
         accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
-        // TODO: replace once the project is created on CurseForge.
         projectId = "1685144"
         projectSlug = "bluemap3d"
         minecraftVersions.addAll(mcVersions)
         clientRequired = false
         serverRequired = true
     }
-    discord {
-        webhookUrl = providers.environmentVariable("DISCORD_WEBHOOK")
-        username = "BlueMap3D"
-        content = "**BlueMap3D ${project.version}** released for Minecraft ${minecraft_version} (NeoForge)"
+    // Announce only when a webhook is configured. The block is unconditional otherwise,
+    // and an absent DISCORD_WEBHOOK fails the publish after the files have already gone
+    // up, which leaves a released version sitting behind a red workflow.
+    if (System.getenv("DISCORD_WEBHOOK")) {
+        discord {
+            webhookUrl = providers.environmentVariable("DISCORD_WEBHOOK")
+            username = "BlueMap3D"
+            content = "**BlueMap3D ${project.version}** released for Minecraft ${minecraft_version} (NeoForge)"
+        }
     }
 }
