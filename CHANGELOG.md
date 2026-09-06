@@ -10,7 +10,10 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Real block models read from resource packs, BlueMap's resource extensions, the vanilla
   client jar and mod jars, with a map-colour cube as a per-block fallback.
 - OBJ meshes (plus their MTL materials) read the same way, for the mods that ship less
-  box-shaped parts that way instead of as a JSON element model.
+  box-shaped parts that way instead of as a JSON element model. A model that reaches its
+  mesh through a parent - the shape most mods use to reskin another mod's part, with a
+  leaf that is nothing but a parent and a texture list - resolves too, rather than falling
+  through to a grey map-colour cube.
 - Block entities - chests, beds, shulker boxes, signs, banners - via BlueMap's own
   `resourceExtensions.zip`.
 - Meshes baked once and cached against `geometryVersion()`; only position and rotation are
@@ -70,6 +73,11 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
 - Curved track is drawn as real geometry - Create draws it from a bezier at render time
   with no blocks of its own, so this addon walks the same bezier itself. Straight,
   diagonal, ascending and crossing track all draw too.
+- A curve draws in the material it is actually built from rather than andesite, found from
+  the material's own blockstate, so another mod's track needs no list here to keep up with.
+  Steam 'n' Rails' hundred-and-fifty-odd wood, narrow-gauge and wide-gauge tracks all draw
+  as themselves; its monorail curves stay andesite, since a monorail curve is a girder
+  rather than sleepers and rails.
 - Bogey wheels turn with the carriage they ride under, small and large bogeys both.
 - Bearing caps - mechanical, windmill and clockwork alike - turn at the rate they actually
   turn in game, not a speed value that can be spinning while the bearing itself is stalled.
