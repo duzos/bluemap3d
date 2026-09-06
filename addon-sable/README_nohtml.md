@@ -1,0 +1,55 @@
+![logo](https://raw.githubusercontent.com/duzos/bluemap3d/master/addon-sable/img/logo.png)
+
+# BlueMap: Aeronautics
+
+### Airships, planes and cars on your BlueMap, moving in real time.
+
+![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-62B47A?style=for-the-badge)
+![Server side](https://img.shields.io/badge/Server%20side-only-2D6FE0?style=for-the-badge)
+
+[![neoforge](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/neoforge_vector.svg)](https://neoforged.net/)
+
+[![Requires Sable](https://img.shields.io/badge/requires-Sable-A0A0A0?style=flat-square)](https://modrinth.com/mod/sable)
+[![Requires BlueMap](https://img.shields.io/badge/requires-BlueMap%205.x-006EDE?style=flat-square)](https://modrinth.com/mod/bluemap)
+[![Requires BlueMap3D](https://img.shields.io/badge/requires-BlueMap3D-2D6FE0?style=flat-square)](https://modrinth.com/mod/bluemap3d)
+
+## What does this mod do?
+
+Puts your [Create: Aeronautics](https://modrinth.com/mod/create-aeronautics) vehicles on your
+web map.
+
+Fly an airship across the world and a normal BlueMap shows empty sky. That is not BlueMap
+being broken. An assembled vehicle blocks live in a
+[Sable](https://modrinth.com/mod/sable) sub-level, which the map never looks at.
+
+This finds them and draws them where they actually are:
+
+- **Airships**, **planes** and **cars**, or anything else built on a Sable sub-level
+- Real blocks and real textures. Fence rails are fence rails, glass is glass
+- Pitch, roll and bank, not just a compass heading
+- Turns around its centre of mass, which is what the physics uses, so a turn looks like a
+  turn
+- Whatever you named it, shown on hover
+
+## Install
+
+Server side. Players do not need it.
+
+Put BlueMap3D, BlueMap: Aeronautics and [Sable](https://modrinth.com/mod/sable) in `mods/`,
+next to [BlueMap](https://modrinth.com/mod/bluemap). If you run Create: Aeronautics you
+already have Sable. Nothing to configure.
+
+## Links
+
+- [Sable](https://modrinth.com/mod/sable)
+- [Create: Aeronautics](https://modrinth.com/mod/create-aeronautics)
+- [BlueMap](https://modrinth.com/mod/bluemap)
+- [BlueMap3D](https://modrinth.com/mod/bluemap3d)
+- [Bug reports](https://github.com/duzos/bluemap3d/issues)
+
+---
+
+This is a third party mod, not approved by or associated with the developers of Sable,
+Create: Aeronautics or BlueMap.
+
+NOT AN OFFICIAL MINECRAFT SERVICE. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
