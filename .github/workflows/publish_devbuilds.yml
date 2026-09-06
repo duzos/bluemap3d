@@ -30,7 +30,7 @@ jobs:
           cache: 'gradle'
 
       - name: Build
-        run: ./gradlew build bundleJar
+        run: ./gradlew build
 
       - name: Publish artifacts
         uses: drtheodor/discord-webhook-upload-action@v0.2
@@ -42,7 +42,6 @@ jobs:
           message_header: |
             <:new1:1253371736510959636><:new2:1253371805734015006> New `${{ github.repository }}` dev build `#${{ github.run_number }}`:
           file: |
-            build/libs/bluemap3d-bundle-*.jar
             core/build/libs/*.jar
             addon-turtles/build/libs/*.jar
             addon-sable/build/libs/*.jar
