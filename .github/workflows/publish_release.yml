@@ -2,6 +2,11 @@ name: Publish (Modrinth + CurseForge)
 
 on:
   workflow_dispatch:
+    inputs:
+      modules:
+        description: 'JSON array of modules to publish'
+        required: false
+        default: '["core","addon-turtles","addon-sable","addon-create"]'
   release:
     types: [ published ]
 
@@ -17,7 +22,9 @@ jobs:
       max-parallel: 1
       fail-fast: true
       matrix:
-        module: [ core, addon-turtles, addon-sable, addon-create ]
+        # Driven by the dispatch input so a module already published at this version
+        # can be skipped; a release event sends no input and gets all four.
+        module: ${{ fromJSON(inputs.modules || '["core","addon-turtles","addon-sable","addon-create"]') }}
 
     steps:
       - uses: actions/checkout@v4
