@@ -39,6 +39,20 @@ dependencies {
     // has to actually run and the loader needs the jar-in-jars unpacked. Create declares
     // no external mod dependencies on 1.21.1; everything it needs is inside.
     devMods "com.simibubi.create:create-${minecraft_version}:${create_version}"
+
+    // Steam 'n' Rails publishes no maven the addon can compile against, and does not need
+    // to: BogeyStyles consumes nothing but strings (block ids, style ids, model paths),
+    // so there is no compileOnly dependency to add - see BogeyStyles' own class comment.
+    // The jar in libs/ (addon-sable's pattern) exists purely to make it installed on the
+    // dev server, so railways bogeys are actually there to render against. Builds fine
+    // with libs/ empty; it just means nothing to test against.
+    def railwaysJar = file("libs/railways-0.2.1+neoforge-mc1.21.1.jar")
+    if (railwaysJar.exists()) {
+        devMods files(railwaysJar)
+        logger.lifecycle("addon-create: installing ${railwaysJar.name} on the dev server")
+    } else {
+        logger.lifecycle("addon-create: ${railwaysJar.name} not in libs/, dev server will not have Steam 'n' Rails")
+    }
 }
 
 publishMods {

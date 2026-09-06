@@ -23,8 +23,9 @@ eclipse
 run
 logs
 
-# Sable publishes no maven, so its jar is dropped in by hand
+# Sable and Steam 'n' Rails publish no maven, so their jars are dropped in by hand
 addon-sable/libs
+addon-create/libs
 dev-harness/libs
 
 # docs is scratch space - images, notes, anything not part of the repo
