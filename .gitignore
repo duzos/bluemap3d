@@ -23,7 +23,9 @@ eclipse
 run
 logs
 
-# Sable and Steam 'n' Rails publish no maven, so their jars are dropped in by hand
+# Steam 'n' Rails publishes no maven, so its jar is dropped in by hand. The other two are
+# a scratch drop point the build no longer reads - prepareDevServer looks in libs/ for a
+# BlueMap jar, which is not on maven either.
 addon-sable/libs
 addon-create/libs
 dev-harness/libs

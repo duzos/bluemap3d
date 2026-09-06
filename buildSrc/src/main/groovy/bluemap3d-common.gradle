@@ -82,8 +82,21 @@ repositories {
         name = 'ithundxr'
         url = 'https://maven.ithundxr.dev/snapshots'
     }
-    // Sable has no public maven; addon-sable resolves it from libs/ if present.
-    // See addon-sable/build.gradle.
+    // Sable and its companion maths library, for addon-sable. Not on any of the usual
+    // mod mavens - RyanHCode runs their own - so it is declared exclusively: nothing
+    // else in the build should ever be looked for here.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'RyanHCode'
+                url = 'https://maven.ryanhcode.dev/releases'
+            }
+        }
+        filter {
+            includeGroup('dev.ryanhcode.sable')
+            includeGroup('dev.ryanhcode.sable-companion')
+        }
+    }
 }
 
 // Declare capabilities on the outgoing configurations so a consumer can ask for

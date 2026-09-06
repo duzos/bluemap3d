@@ -17,18 +17,13 @@ the task tells you which two lines to edit instead.
 
 ## Sable itself
 
-Sable publishes no maven, so unlike CC:Tweaked it cannot be pulled down by coordinate.
-Drop the mod jar in `addon-sable/libs/`:
+Sable is on RyanHCode's own maven at <https://maven.ryanhcode.dev/releases>, so it is
+pulled down by coordinate like CC:Tweaked and nothing has to be dropped in by hand. The
+version is `sable_version` in `gradle.properties`.
 
-```
-addon-sable/libs/sable-neoforge-1.21.1-2.0.3.jar
-```
-
-`build.gradle` picks it up from there for three things at once: the compile classpath, the
-jar-in-jar `sable-companion` it needs unpacked for `Pose3d` and `BoundingBox3i`, and
-`devMods`, which is what puts it in this server's `mods/`. Without it the module still
-builds - the provider is compiled against nothing and reports nothing - and this dev
-server has no ships in it.
+`build.gradle` takes it twice: `compileOnly` for the API, alongside `sable-companion` for
+`Pose3d` and `BoundingBox3i`, and `devMods`, which is what puts the jar in this server's
+`mods/`.
 
 ## What's in here
 
