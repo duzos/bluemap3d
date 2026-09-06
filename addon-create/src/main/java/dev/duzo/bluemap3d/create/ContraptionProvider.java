@@ -178,11 +178,28 @@ public final class ContraptionProvider implements SceneObjectProvider {
             ResourceLocation.fromNamespaceAndPath("railways", "medium_quadruple_wheel"),
             ResourceLocation.fromNamespaceAndPath("railways", "medium_quintuple_wheel"));
 
+    // Steam 'n' Rails blocks for BogeyStyles' display-based family (archbar, blomberg,
+    // freight, modern, passenger, y25). Read off CRBogeyStyles: freight, archbar and y25
+    // sit on the "large platform" double-axle block, the other three on the plain one -
+    // an inconsistency in the mod's own registration, not a typo here.
+    private static final Set<ResourceLocation> DOUBLE_AXLE_BOGEY_BLOCKS = Set.of(
+            ResourceLocation.fromNamespaceAndPath("railways", "doubleaxle_bogey"),
+            ResourceLocation.fromNamespaceAndPath("railways", "large_platform_doubleaxle_bogey"));
+
+    // Steam 'n' Rails blocks for BogeyStyles' large-Create-styled family (0-4-0 through
+    // 0-12-0). Each style id has its own block, unlike the families above.
+    private static final Set<ResourceLocation> LARGE_CREATE_STYLED_BOGEY_BLOCKS = Set.of(
+            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_4_0"),
+            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_6_0"),
+            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_8_0"),
+            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_10_0"),
+            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_12_0"));
+
     private static final ResourceLocation BOGEY_FRAME_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_frame");
-    private static final ResourceLocation SMALL_BOGEY_WHEEL_MODEL =
+    static final ResourceLocation SMALL_BOGEY_WHEEL_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_wheel");
-    private static final ResourceLocation LARGE_BOGEY_WHEEL_MODEL =
+    static final ResourceLocation LARGE_BOGEY_WHEEL_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_wheel");
     private static final ResourceLocation BOGEY_DRIVE_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive");
@@ -190,7 +207,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_belt");
     private static final ResourceLocation BOGEY_PISTON_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_piston");
-    private static final ResourceLocation BOGEY_PIN_MODEL =
+    static final ResourceLocation BOGEY_PIN_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_drive_wheel_pin");
 
     // Where the parts sit relative to the bogey block, and how fast the wheels should
@@ -287,23 +304,23 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // this same coordinate convention and this same small wheel radius (see that class).
     static final float BOGEY_DROP = -0.75f;
     private static final float FRAME_HEIGHT = -0.5f;
-    private static final float SMALL_AXLE_HEIGHT = 0f;
-    private static final float SMALL_AXLE_SPACING = 1.0f;
+    static final float SMALL_AXLE_HEIGHT = 0f;
+    static final float SMALL_AXLE_SPACING = 1.0f;
     // 1.0 (Large's raw wheel translate) minus 0.75 (Small's, folded into BOGEY_DROP above).
-    private static final float LARGE_AXLE_HEIGHT = 0.25f;
+    static final float LARGE_AXLE_HEIGHT = 0.25f;
     // BOGEY_DRIVE, BOGEY_DRIVE_BELT and BOGEY_PISTON's rest position all read raw
     // translate 0 - 0.75, the same arithmetic as LARGE_AXLE_HEIGHT above, and they share
     // one constant because they also share that raw origin.
-    private static final float BOGEY_DRIVE_HEIGHT = -0.75f;
+    static final float BOGEY_DRIVE_HEIGHT = -0.75f;
     // BOGEY_PIN's angle-0 rest translate is 1.25 (1 + 0.25) - 0.75.
-    private static final float BOGEY_PIN_HEIGHT = 0.5f;
+    static final float BOGEY_PIN_HEIGHT = 0.5f;
 
     // Create's own amplitude and crank throw, both in block units, straight off the
     // decompiled render(): translate(0, 0, 0.25 * sin(rad(angle))) for the piston, and
     // the 0.25 in translate(0, 0.25, 0) between the pin's two rotateX calls. Multiplied
     // by 16 below wherever ModelAttachment wants model-space (0..16) units instead.
-    private static final float PISTON_STROKE = 0.25f;
-    private static final float PIN_ORBIT_RADIUS = 0.25f;
+    static final float PISTON_STROKE = 0.25f;
+    static final float PIN_ORBIT_RADIUS = 0.25f;
 
     // Spin radius, likewise not readable from the client renderer - but AbstractBogeyBlock
     // itself (a normal, both-sides Block class, not the renderer) exposes
@@ -314,13 +331,13 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // (getWheelRadius() returns radius/16, so radius alone is already in the model's own
     // 0..16 space Spin expects): 6.5 for every bogey but a large one, 12.5 for large.
     static final float WHEEL_RADIUS_SMALL = 6.5f;
-    private static final float WHEEL_RADIUS_LARGE = 12.5f;
+    static final float WHEEL_RADIUS_LARGE = 12.5f;
 
     // bogey_wheel.obj is authored with both of an axle's wheels already mirrored across
     // its own local origin, so one attachment is one whole axle: the axle line passes
     // through that origin along the model's own local X, which is what the renderer spins
     // it about (rotateXDegrees).
-    private static final Vector3f WHEEL_PIVOT = new Vector3f(0f, 0f, 0f);
+    static final Vector3f WHEEL_PIVOT = new Vector3f(0f, 0f, 0f);
     static final Vector3f WHEEL_AXIS = new Vector3f(1f, 0f, 0f);
 
     /**
@@ -794,7 +811,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         boolean small = SMALL_BOGEY.equals(id);
         boolean large = LARGE_BOGEY.equals(id);
-        if (!small && !large && !MEDIUM_BOGEY_BLOCKS.contains(id)) {
+        if (!small && !large && !MEDIUM_BOGEY_BLOCKS.contains(id)
+                && !DOUBLE_AXLE_BOGEY_BLOCKS.contains(id)
+                && !LARGE_CREATE_STYLED_BOGEY_BLOCKS.contains(id)) {
             return;
         }
         if (!state.hasProperty(BlockStateProperties.HORIZONTAL_AXIS)) {
@@ -811,7 +830,6 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // or geometry this addon has no way to name at all. The block's own model
             // still draws either way; this only ever adds to it, never replaces it.
             List<ModelAttachment> parts = BogeyStyles.attachmentsFor(style, pos, axis);
-            LOGGER.info("TEMP bogey style debug: block={} style={} parts={}", id, style, parts.size());
             out.addAll(parts);
             return;
         }
