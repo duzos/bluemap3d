@@ -906,10 +906,19 @@ public final class ContraptionProvider implements SceneObjectProvider {
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
 
-        if (!STANDARD_BOGEY_STYLE.equals(style)) {
-            // Not Create's own style, so its frame and wheels are either BogeyStyles' job
-            // or geometry this addon has no way to name at all. The block's own model
-            // still draws either way; this only ever adds to it, never replaces it.
+        if ((!small && !large) || !STANDARD_BOGEY_STYLE.equals(style)) {
+            // Not Create's own style, or not one of Create's own two blocks, so the frame
+            // and wheels are either BogeyStyles' job or geometry this addon has no way to
+            // name at all. The block's own model still draws either way; this only ever
+            // adds to it, never replaces it.
+            //
+            // The block test is not redundant with the style test. A style that cannot be
+            // read at all comes back as STANDARD_BOGEY_STYLE, and on a Steam 'n' Rails
+            // block that used to fall straight through to the large branch below - so an
+            // unreadable railways medium bogey drew Create's gearbox, piston and drive
+            // wheels, which is the "confidently wrong" outcome this whole feature is
+            // supposed to refuse. BogeyStyles does not know create:standard either, so it
+            // returns nothing, which is the right answer.
             List<ModelAttachment> parts = BogeyStyles.attachmentsFor(style, pos, axis);
             out.addAll(parts);
             return;
