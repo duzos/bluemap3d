@@ -160,51 +160,20 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // its axis needs no Create class either - the axis property Create's own
     // AbstractBogeyBlock exposes is just vanilla BlockStateProperties.HORIZONTAL_AXIS.
 
+    // Create's own two bogey BLOCKS. These are block ids, not block entity type ids, and
+    // the difference has already cost one debugging session: Create registers a single
+    // block entity type "create:bogey" shared by both blocks, and Steam 'n' Rails does the
+    // same with "railways:bogey" across all twenty-two of its bogey blocks
+    // (CRBlockEntities, validBlocks). A contraption's saved block entity tag carries that
+    // type id in its "id" field, so an nbt dump of an assembled train reads "create:bogey"
+    // or "railways:bogey" and looks like the block id while being nothing of the sort.
+    // create:small_bogey and create:large_bogey are the real block ids - confirmed against
+    // Create 6.0.10-280's own assets/create/blockstates/{small,large}_bogey.json and its
+    // block.create.small_bogey lang key. Do not "correct" these to create:bogey.
     private static final ResourceLocation SMALL_BOGEY =
             ResourceLocation.fromNamespaceAndPath("create", "small_bogey");
     private static final ResourceLocation LARGE_BOGEY =
             ResourceLocation.fromNamespaceAndPath("create", "large_bogey");
-
-    // Steam 'n' Rails blocks that can carry one of BogeyStyles' medium-family styles. A
-    // style id is what actually picks the geometry (see bogeyStyleOf and BogeyStyles), but
-    // the block still has to be recognised here first - the same gate Create's own two
-    // bogey blocks already passed through, just widened. Several of the eleven medium
-    // style ids share these six blocks and are told apart only by the style nbt; that is
-    // fine; the gate here only needs to recognise the block, never the style.
-    private static final Set<ResourceLocation> MEDIUM_BOGEY_BLOCKS = Set.of(
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_bogey"),
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_2_0_2_trailing"),
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_4_0_4_trailing"),
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_triple_wheel"),
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_quadruple_wheel"),
-            ResourceLocation.fromNamespaceAndPath("railways", "medium_quintuple_wheel"));
-
-    // Steam 'n' Rails block for BogeyStyles' single-axle family (singleaxle, leafspring,
-    // coilspring). All three sit on this one block, told apart only by the style nbt.
-    private static final ResourceLocation SINGLE_AXLE_BOGEY_BLOCK =
-            ResourceLocation.fromNamespaceAndPath("railways", "singleaxle_bogey");
-
-    // Steam 'n' Rails blocks for BogeyStyles' display-based family (archbar, blomberg,
-    // freight, modern, passenger, y25). Read off CRBogeyStyles: freight, archbar and y25
-    // sit on the "large platform" double-axle block, the other three on the plain one -
-    // an inconsistency in the mod's own registration, not a typo here.
-    private static final Set<ResourceLocation> DOUBLE_AXLE_BOGEY_BLOCKS = Set.of(
-            ResourceLocation.fromNamespaceAndPath("railways", "doubleaxle_bogey"),
-            ResourceLocation.fromNamespaceAndPath("railways", "large_platform_doubleaxle_bogey"));
-
-    // Steam 'n' Rails block for BogeyStyles' triple-axle family (heavyweight, radial).
-    // Both sit on this one block, told apart only by the style nbt.
-    private static final ResourceLocation TRIPLE_AXLE_BOGEY_BLOCK =
-            ResourceLocation.fromNamespaceAndPath("railways", "tripleaxle_bogey");
-
-    // Steam 'n' Rails blocks for BogeyStyles' large-Create-styled family (0-4-0 through
-    // 0-12-0). Each style id has its own block, unlike the families above.
-    private static final Set<ResourceLocation> LARGE_CREATE_STYLED_BOGEY_BLOCKS = Set.of(
-            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_4_0"),
-            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_6_0"),
-            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_8_0"),
-            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_10_0"),
-            ResourceLocation.fromNamespaceAndPath("railways", "large_create_styled_0_12_0"));
 
     private static final ResourceLocation BOGEY_FRAME_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_frame");
@@ -879,48 +848,53 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * piston, one spinning wheel pair, and an orbiting crank pin. See the constants block
      * above for where each of those numbers came from.
      *
-     * <p>Every other recognised block - the Steam 'n' Rails blocks the medium,
-     * single-axle, double-axle, triple-axle and large-Create-styled families can sit
-     * on - is handed to
-     * {@link BogeyStyles} keyed on its style id, which returns no parts at all for a
-     * style it does not know either.
+     * <p>Every other style is handed to {@link BogeyStyles} keyed on its style id, which
+     * returns no parts at all for a style it does not know either.
+     *
+     * <h2>Why there is no list of addon bogey block ids here</h2>
+     * There used to be one - the five Steam 'n' Rails block sets the medium, single-axle,
+     * double-axle, triple-axle and large-Create-styled families sit on - as a gate to stop
+     * an unrecognised style falling through to Create's hardcoded branches below. It has
+     * been removed, because the style id already carries that guarantee and the list did
+     * not: it had to be kept in step by hand with {@code CRBogeyStyles}' own size-to-block
+     * registration, which this addon cannot read at runtime, so every new style family (and
+     * every mod that is not Steam 'n' Rails) silently drew nothing until somebody
+     * remembered to widen it.
+     *
+     * <p>The invariant that actually matters is the one the ordering below enforces:
+     * Create's hardcoded geometry is reachable <em>only</em> when the style really is
+     * {@link #STANDARD_BOGEY_STYLE} and the block really is one of Create's own two, so a
+     * style that cannot be read - which degrades to {@code create:standard} - can never
+     * draw Create's gearbox and drive wheels onto somebody else's bogey. Everything else
+     * dispatches on the style id alone, and an id {@link BogeyStyles} does not know draws
+     * nothing rather than a guess.
      */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
                                             String style, List<ModelAttachment> out) {
         BlockState state = info.state();
-        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        boolean small = SMALL_BOGEY.equals(id);
-        boolean large = LARGE_BOGEY.equals(id);
-        if (!small && !large && !MEDIUM_BOGEY_BLOCKS.contains(id)
-                && !SINGLE_AXLE_BOGEY_BLOCK.equals(id)
-                && !DOUBLE_AXLE_BOGEY_BLOCKS.contains(id)
-                && !TRIPLE_AXLE_BOGEY_BLOCK.equals(id)
-                && !LARGE_CREATE_STYLED_BOGEY_BLOCKS.contains(id)) {
-            return;
-        }
         if (!state.hasProperty(BlockStateProperties.HORIZONTAL_AXIS)) {
-            // Should not happen for any recognised bogey block; guarded rather than
-            // trusted so a future version that changes this property does not throw
-            // mid-collect.
+            // Every bogey block has this property - Create's AbstractBogeyBlock declares it
+            // and Steam 'n' Rails inherits it. Guarded rather than trusted, both so a future
+            // version that changes it does not throw mid-collect and because this method now
+            // sees every block in the contraption, not just a shortlist of bogeys.
             return;
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
 
-        if ((!small && !large) || !STANDARD_BOGEY_STYLE.equals(style)) {
-            // Not Create's own style, or not one of Create's own two blocks, so the frame
-            // and wheels are either BogeyStyles' job or geometry this addon has no way to
-            // name at all. The block's own model still draws either way; this only ever
-            // adds to it, never replaces it.
-            //
-            // The block test is not redundant with the style test. A style that cannot be
-            // read at all comes back as STANDARD_BOGEY_STYLE, and on a Steam 'n' Rails
-            // block that used to fall straight through to the large branch below - so an
-            // unreadable railways medium bogey drew Create's gearbox, piston and drive
-            // wheels, which is the "confidently wrong" outcome this whole feature is
-            // supposed to refuse. BogeyStyles does not know create:standard either, so it
-            // returns nothing, which is the right answer.
-            List<ModelAttachment> parts = BogeyStyles.attachmentsFor(style, pos, axis);
-            out.addAll(parts);
+        if (!STANDARD_BOGEY_STYLE.equals(style)) {
+            // Somebody else's style. The block's own model still draws either way; this only
+            // ever adds to it, never replaces it.
+            out.addAll(BogeyStyles.attachmentsFor(style, pos, axis));
+            return;
+        }
+
+        // create:standard, so Create's own geometry - but only on Create's own blocks. Any
+        // other block reaching here is either an addon bogey whose style tag could not be
+        // read, or an ordinary block that happens to have a horizontal axis; both draw
+        // nothing, which is the right answer for both.
+        ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        boolean small = SMALL_BOGEY.equals(id);
+        if (!small && !LARGE_BOGEY.equals(id)) {
             return;
         }
 
