@@ -163,6 +163,21 @@ public final class ContraptionProvider implements SceneObjectProvider {
             ResourceLocation.fromNamespaceAndPath("create", "small_bogey");
     private static final ResourceLocation LARGE_BOGEY =
             ResourceLocation.fromNamespaceAndPath("create", "large_bogey");
+
+    // Steam 'n' Rails blocks that can carry one of BogeyStyles' medium-family styles. A
+    // style id is what actually picks the geometry (see bogeyStyleOf and BogeyStyles), but
+    // the block still has to be recognised here first - the same gate Create's own two
+    // bogey blocks already passed through, just widened. Several of the eleven medium
+    // style ids share these six blocks and are told apart only by the style nbt; that is
+    // fine; the gate here only needs to recognise the block, never the style.
+    private static final Set<ResourceLocation> MEDIUM_BOGEY_BLOCKS = Set.of(
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_bogey"),
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_2_0_2_trailing"),
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_4_0_4_trailing"),
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_triple_wheel"),
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_quadruple_wheel"),
+            ResourceLocation.fromNamespaceAndPath("railways", "medium_quintuple_wheel"));
+
     private static final ResourceLocation BOGEY_FRAME_MODEL =
             ResourceLocation.fromNamespaceAndPath("create", "block/track/bogey/bogey_frame");
     private static final ResourceLocation SMALL_BOGEY_WHEEL_MODEL =
@@ -267,7 +282,10 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // new large-only constants are first-pass estimates from the arithmetic alone, without
     // that same visual nudge, because their meshes were not test-rendered for this change;
     // see the tuning table in the task report if one of them looks off by a fixed amount.
-    private static final float BOGEY_DROP = -0.75f;
+    // Package-private rather than private: BogeyStyles reuses BOGEY_DROP, WHEEL_AXIS,
+    // WHEEL_RADIUS_SMALL and bogeyTransform for the railways medium family, which shares
+    // this same coordinate convention and this same small wheel radius (see that class).
+    static final float BOGEY_DROP = -0.75f;
     private static final float FRAME_HEIGHT = -0.5f;
     private static final float SMALL_AXLE_HEIGHT = 0f;
     private static final float SMALL_AXLE_SPACING = 1.0f;
@@ -295,7 +313,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // bogey_wheel.obj's rim by eye, these are that method's own constants
     // (getWheelRadius() returns radius/16, so radius alone is already in the model's own
     // 0..16 space Spin expects): 6.5 for every bogey but a large one, 12.5 for large.
-    private static final float WHEEL_RADIUS_SMALL = 6.5f;
+    static final float WHEEL_RADIUS_SMALL = 6.5f;
     private static final float WHEEL_RADIUS_LARGE = 12.5f;
 
     // bogey_wheel.obj is authored with both of an axle's wheels already mirrored across
@@ -303,20 +321,24 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // through that origin along the model's own local X, which is what the renderer spins
     // it about (rotateXDegrees).
     private static final Vector3f WHEEL_PIVOT = new Vector3f(0f, 0f, 0f);
-    private static final Vector3f WHEEL_AXIS = new Vector3f(1f, 0f, 0f);
+    static final Vector3f WHEEL_AXIS = new Vector3f(1f, 0f, 0f);
 
     /**
-     * Create's own bogey style, and the only one whose parts this addon can place.
+     * Create's own bogey style. Handled inline below rather than through
+     * {@link BogeyStyles}, since its model names were already hardcoded here before that
+     * table existed and there is nothing to gain by moving them.
      *
      * <p>A style's geometry is not data: it lives in a client-side renderer registered in
      * Java, so there is nothing on a server to read for any style but this one, whose
-     * model names are hardcoded above. A bogey of any other style therefore gets no parts
-     * at all rather than standard ones, because drawing Create's frame and wheels onto
-     * another mod's bogey is worse than drawing nothing: it is confidently wrong, and it
-     * hides the fact that the style is unsupported.
+     * model names are hardcoded above, and whatever {@link BogeyStyles} knows about.
+     * Anything neither of those recognises gets no parts at all rather than a guess,
+     * because drawing one mod's frame and wheels onto another mod's bogey is worse than
+     * drawing nothing: it is confidently wrong, and it hides the fact that the style is
+     * unsupported.
      *
-     * <p>Supporting another style means adding its model names here, which needs that
-     * mod on the classpath or its assets read by hand.
+     * <p>Supporting another style means adding its model names to {@link BogeyStyles} (or
+     * here, for Create's own), which needs that mod's assets read by hand - see that
+     * class for why nothing here can be read off the mod itself at runtime.
      */
     private static final String STANDARD_BOGEY_STYLE = "create:standard";
 
@@ -752,13 +774,19 @@ public final class ContraptionProvider implements SceneObjectProvider {
 
     /**
      * Appends a bogey block's parts to {@code out}, or does nothing if {@code state} is not
-     * a small or large bogey.
+     * a bogey block this addon recognises.
      *
-     * <p>A small bogey gets its frame plus two spinning wheel attachments, one per axle. A
-     * large bogey never gets a frame - Create's own {@code $Large} renderer does not draw
-     * one either - and instead gets the gearbox housing and belt static, a reciprocating
+     * <p>Create's two bogey blocks only ever carry {@link #STANDARD_BOGEY_STYLE} in
+     * practice, so their geometry stays hardcoded right here exactly as before: a small
+     * bogey gets its frame plus two spinning wheel attachments, one per axle; a large
+     * bogey never gets a frame - Create's own {@code $Large} renderer does not draw one
+     * either - and instead gets the gearbox housing and belt static, a reciprocating
      * piston, one spinning wheel pair, and an orbiting crank pin. See the constants block
      * above for where each of those numbers came from.
+     *
+     * <p>Every other recognised block - so far, the six Steam 'n' Rails blocks the medium
+     * family can sit on - is handed to {@link BogeyStyles} keyed on its style id, which
+     * returns no parts at all for a style it does not know either.
      */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
                                             List<ModelAttachment> out) {
@@ -766,19 +794,25 @@ public final class ContraptionProvider implements SceneObjectProvider {
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         boolean small = SMALL_BOGEY.equals(id);
         boolean large = LARGE_BOGEY.equals(id);
-        if (!small && !large) {
+        if (!small && !large && !MEDIUM_BOGEY_BLOCKS.contains(id)) {
             return;
         }
         if (!state.hasProperty(BlockStateProperties.HORIZONTAL_AXIS)) {
-            // Should not happen for either bogey block; guarded rather than trusted so a
-            // future Create version that changes this property does not throw mid-collect.
+            // Should not happen for any recognised bogey block; guarded rather than
+            // trusted so a future version that changes this property does not throw
+            // mid-collect.
             return;
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
+        String style = bogeyStyleOf(info);
 
-        if (!STANDARD_BOGEY_STYLE.equals(bogeyStyleOf(info))) {
-            // Another style, so its frame and wheels are geometry this addon has no way to
-            // name. The block's own model still draws; it simply gets nothing added.
+        if (!STANDARD_BOGEY_STYLE.equals(style)) {
+            // Not Create's own style, so its frame and wheels are either BogeyStyles' job
+            // or geometry this addon has no way to name at all. The block's own model
+            // still draws either way; this only ever adds to it, never replaces it.
+            List<ModelAttachment> parts = BogeyStyles.attachmentsFor(style, pos, axis);
+            LOGGER.info("TEMP bogey style debug: block={} style={} parts={}", id, style, parts.size());
+            out.addAll(parts);
             return;
         }
 
@@ -836,7 +870,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
      *           this is what actually separates a small bogey's two axles, since it is
      *           applied before the axis-x turn above would carry it onto world x instead
      */
-    private static Matrix4f bogeyTransform(Direction.Axis axis, float dy, float dz) {
+    static Matrix4f bogeyTransform(Direction.Axis axis, float dy, float dz) {
         Matrix4f matrix = new Matrix4f().translate(0.5f, 0.5f, 0.5f);
         if (axis == Direction.Axis.X) {
             matrix.rotateY((float) Math.toRadians(90));
