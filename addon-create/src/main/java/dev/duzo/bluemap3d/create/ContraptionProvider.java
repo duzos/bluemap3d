@@ -801,9 +801,10 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * piston, one spinning wheel pair, and an orbiting crank pin. See the constants block
      * above for where each of those numbers came from.
      *
-     * <p>Every other recognised block - so far, the six Steam 'n' Rails blocks the medium
-     * family can sit on - is handed to {@link BogeyStyles} keyed on its style id, which
-     * returns no parts at all for a style it does not know either.
+     * <p>Every other recognised block - the Steam 'n' Rails blocks the medium,
+     * double-axle and large-Create-styled families can sit on - is handed to
+     * {@link BogeyStyles} keyed on its style id, which returns no parts at all for a
+     * style it does not know either.
      */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
                                             List<ModelAttachment> out) {

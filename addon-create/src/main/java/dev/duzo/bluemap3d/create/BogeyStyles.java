@@ -86,9 +86,14 @@ final class BogeyStyles {
 
     /** A run of {@code count} wheels 1.5 blocks apart, starting at {@code start}. */
     private static float[] run(int count, float start) {
+        return run(count, start, 1.5f);
+    }
+
+    /** A run of {@code count} wheels {@code step} blocks apart, starting at {@code start}. */
+    private static float[] run(int count, float start, float step) {
         float[] offsets = new float[count];
         for (int i = 0; i < count; i++) {
-            offsets[i] = start + i * 1.5f;
+            offsets[i] = start + i * step;
         }
         return offsets;
     }
@@ -181,6 +186,96 @@ final class BogeyStyles {
                     railways("block/bogey/y25/frame"), LONG_SHAFTED_WHEELS, true)
     );
 
+    // -----------------------------------------------------------------------------
+    // Large Create-styled family
+    // -----------------------------------------------------------------------------
+    //
+    // Five style ids - 0-4-0 through 0-12-0 - and one shared code path, generalising
+    // Create's own large bogey (see ContraptionProvider's bogey comment block for the
+    // piston/pin maths this reuses verbatim) to N driver axles. Every one of the five
+    // `standard/large/LargeCreateStyled*Display` classes has the same shape: a frame, a
+    // piston, up to two "full blind" and two "semi blind" wheel instances (unflanged
+    // middle axles a real locomotive needs for curves this tight), always two driver
+    // wheels (create:LARGE_BOGEY_WHEELS, the same model and radius Create's own large
+    // bogey draws), and one pin per axle. Cosmetic create:shaft stubs, same as every
+    // other family here, are skipped.
+    //
+    // Every wheel instance already draws a whole axle (bogey_wheel-style meshes mirror
+    // both wheels of an axle across their own local origin, per ContraptionProvider's
+    // own comment on WHEEL_PIVOT), so a "semi blind" or "full blind" row of one entry is
+    // one axle, not one wheel - the single-instance middle axles below (0-6-0's one
+    // semi-blind axle, 0-10-0's one full-blind axle) are not a smaller special case, just
+    // an array of length one.
+    //
+    // The driver wheels and pins read exactly like Create's own large bogey - translate
+    // (0, 1, z) then rotateX(a) for a driver wheel, the same but z-offset and with the
+    // trailing translate(0, 0.25, 0) rotateX(-a) orbit for a pin - so LARGE_AXLE_HEIGHT,
+    // BOGEY_PIN_HEIGHT, PIN_ORBIT_RADIUS and WHEEL_RADIUS_LARGE are reused unchanged; the
+    // only new number is z. Semi-blind and full-blind wheels are the same "lowerPivot"
+    // shape the double-axle family above already uses - translate(0, 1, z), rotateX(a),
+    // translate(0, -1, 0) - so they share LARGE_AXLE_HEIGHT too, just with a Spin pivot
+    // at model y 1.0 (times 16) instead of the driver wheel's own origin.
+    //
+    // The frame and piston are the one place this family does NOT reuse Create's own
+    // height constants. Create's own BOGEY_DRIVE/BOGEY_PISTON read a raw translate of
+    // 0 - 0.75 in the client renderer (BOGEY_DRIVE_HEIGHT), but this family's own frame
+    // and piston update() calls carry no static translate at all before the piston's
+    // oscillation term - meaning these obj meshes, unlike Create's, are already authored
+    // at the correct rest height, needing only BOGEY_DROP's universal block-centre
+    // correction and nothing more. Not a guess: read directly off both classes'
+    // decompiled bytecode side by side. If a live render disagrees, this pair is the one
+    // most likely to need an empirical nudge, the same way FRAME_HEIGHT once did for
+    // Create's own bogey frame.
+    //
+    // The z offsets below were read off decompiled bytecode constants for all five
+    // classes, not measured by eye against a running server - expect the same kind of
+    // correction pass the medium family's own z offsets already call for.
+
+    private static final ResourceLocation LC_STYLE_SEMI_BLIND_WHEELS =
+            railways("block/bogey/large/wheels/semi_blind_wheels");
+    private static final ResourceLocation LC_STYLE_FULL_BLIND_WHEELS =
+            railways("block/bogey/large/wheels/full_blind_wheels");
+
+    /** The lowered wheel pivot for a semi- or full-blind axle, in the model's own 0..16 space. */
+    private static final Vector3f LC_STYLE_LOWERED_PIVOT = new Vector3f(0f, 16f, 0f);
+
+    private record LargeCreateStyle(ResourceLocation frame, ResourceLocation piston,
+                                     float[] driverZ, float[] semiBlindZ, float[] fullBlindZ, float[] pinZ) {
+    }
+
+    /** {@code {v, -v}} - the driver and semi/full-blind wheels always come in a symmetric pair. */
+    private static float[] symmetric(float v) {
+        return new float[]{v, -v};
+    }
+
+    private static final Map<String, LargeCreateStyle> LARGE_CREATE_STYLES = Map.of(
+            "railways:large_create_style_0_4_0", new LargeCreateStyle(
+                    railways("block/bogey/large/create_styled_0_4_0/frame/frame"),
+                    railways("block/bogey/large/create_styled_0_4_0/piston/piston"),
+                    symmetric(0.8732f), new float[0], new float[0],
+                    symmetric(0.8732f)),
+            "railways:large_create_style_0_6_0", new LargeCreateStyle(
+                    railways("block/bogey/large/create_styled_0_6_0/frame/frame"),
+                    railways("block/bogey/large/create_styled_0_6_0/piston/piston"),
+                    symmetric(1.6842f), new float[]{0f}, new float[0],
+                    run(3, -1.6842f, 1.6842f)),
+            "railways:large_create_style_0_8_0", new LargeCreateStyle(
+                    railways("block/bogey/large/create_styled_0_8_0/frame/frame"),
+                    railways("block/bogey/large/create_styled_0_8_0/piston/piston"),
+                    symmetric(2.62f), symmetric(0.8732f), new float[0],
+                    run(4, -2.62f, 1.7467f)),
+            "railways:large_create_style_0_10_0", new LargeCreateStyle(
+                    railways("block/bogey/large/create_styled_0_10_0/frame/frame"),
+                    railways("block/bogey/large/create_styled_0_10_0/piston/piston"),
+                    symmetric(3.3684f), symmetric(1.684f), new float[]{0f},
+                    run(5, -3.3684f, 1.6842f)),
+            "railways:large_create_style_0_12_0", new LargeCreateStyle(
+                    railways("block/bogey/large/create_styled_0_12_0/frame/frame"),
+                    railways("block/bogey/large/create_styled_0_12_0/piston/piston"),
+                    symmetric(4.3665f), symmetric(2.62f), symmetric(0.8733f),
+                    run(6, -4.36641f, 1.74657f))
+    );
+
     /**
      * The parts for one bogey style at {@code pos}, or an empty list for any style this
      * table does not (yet) recognise - the same draw-nothing fallback
@@ -195,6 +290,10 @@ final class BogeyStyles {
         DoubleAxleStyle doubleAxle = DOUBLE_AXLE_STYLES.get(styleId);
         if (doubleAxle != null) {
             return doubleAxleAttachments(pos, axis, doubleAxle);
+        }
+        LargeCreateStyle largeCreateStyled = LARGE_CREATE_STYLES.get(styleId);
+        if (largeCreateStyled != null) {
+            return largeCreateStyledAttachments(pos, axis, largeCreateStyled);
         }
         return List.of();
     }
@@ -230,5 +329,48 @@ final class BogeyStyles {
             out.add(new ModelAttachment(pos, style.wheels(), Map.of(), transform, spin));
         }
         return out;
+    }
+
+    private static List<ModelAttachment> largeCreateStyledAttachments(BlockPos pos, Direction.Axis axis,
+                                                                       LargeCreateStyle style) {
+        List<ModelAttachment> out = new ArrayList<>();
+
+        Matrix4f frameTransform = ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f);
+        out.add(new ModelAttachment(pos, style.frame(), Map.of(), frameTransform));
+
+        ModelAttachment.Oscillate pistonMotion = new ModelAttachment.Oscillate(
+                new Vector3f(0f, 0f, 1f),
+                ContraptionProvider.PISTON_STROKE * 16f,
+                ContraptionProvider.WHEEL_RADIUS_LARGE);
+        out.add(new ModelAttachment(pos, style.piston(), Map.of(), frameTransform, pistonMotion));
+
+        for (float z : style.driverZ()) {
+            out.add(largeWheel(pos, axis, ContraptionProvider.LARGE_BOGEY_WHEEL_MODEL, z,
+                    ContraptionProvider.WHEEL_PIVOT));
+        }
+        for (float z : style.semiBlindZ()) {
+            out.add(largeWheel(pos, axis, LC_STYLE_SEMI_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT));
+        }
+        for (float z : style.fullBlindZ()) {
+            out.add(largeWheel(pos, axis, LC_STYLE_FULL_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT));
+        }
+        for (float z : style.pinZ()) {
+            Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                    ContraptionProvider.BOGEY_DROP + ContraptionProvider.BOGEY_PIN_HEIGHT, z);
+            ModelAttachment.Orbit pinMotion = new ModelAttachment.Orbit(
+                    new Vector3f(0f, -ContraptionProvider.PIN_ORBIT_RADIUS * 16f, 0f),
+                    ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_LARGE);
+            out.add(new ModelAttachment(pos, ContraptionProvider.BOGEY_PIN_MODEL, Map.of(), transform, pinMotion));
+        }
+        return out;
+    }
+
+    private static ModelAttachment largeWheel(BlockPos pos, Direction.Axis axis, ResourceLocation model,
+                                               float z, Vector3f pivot) {
+        Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                ContraptionProvider.BOGEY_DROP + ContraptionProvider.LARGE_AXLE_HEIGHT, z);
+        ModelAttachment.Spin spin = new ModelAttachment.Spin(
+                pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_LARGE);
+        return new ModelAttachment(pos, model, Map.of(), transform, spin);
     }
 }
