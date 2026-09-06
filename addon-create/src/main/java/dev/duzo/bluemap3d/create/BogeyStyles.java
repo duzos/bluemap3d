@@ -124,6 +124,33 @@ final class BogeyStyles {
     );
 
     // -----------------------------------------------------------------------------
+    // Single axle family
+    // -----------------------------------------------------------------------------
+    //
+    // Three style ids - singleaxle, leafspring, coilspring - and one shared code path.
+    // All three `standard/single_axle/*Display` classes are a single-line constructor,
+    // `super(provider, FRAME)`; the wheel model (always create:SMALL_BOGEY_WHEELS) and the
+    // wheel maths live once in `single_axle/base/SingleAxleBogeyDisplay`: one wheel
+    // instance, `translate(0, 0.75, 0)` then `rotateX(a)`, with no un-translate afterwards.
+    // That is exactly the lowerPivot=false shape the double-axle family below already
+    // covers - a Spin pivoted at the wheel model's own origin, ContraptionProvider's own
+    // WHEEL_PIVOT - just with one wheel instance instead of two, since a single-axle bogey
+    // has only the one axle.
+    //
+    // Read by javap, one row per style: singleaxle -> SINGLEAXLE_FRAME, leafspring ->
+    // LEAFSPRING_FRAME, coilspring -> COILSPRING_FRAME. All three sit on the same block,
+    // railways:singleaxle_bogey.
+
+    private record SingleAxleStyle(ResourceLocation frame) {
+    }
+
+    private static final Map<String, SingleAxleStyle> SINGLE_AXLE_STYLES = Map.of(
+            "railways:singleaxle", new SingleAxleStyle(railways("block/bogey/singleaxle/frame")),
+            "railways:leafspring", new SingleAxleStyle(railways("block/bogey/leafspring/frame")),
+            "railways:coilspring", new SingleAxleStyle(railways("block/bogey/coilspring/frame"))
+    );
+
+    // -----------------------------------------------------------------------------
     // Display family (double axle)
     // -----------------------------------------------------------------------------
     //
@@ -184,6 +211,36 @@ final class BogeyStyles {
                     railways("block/bogey/passenger/frame"), LONG_SHAFTED_WHEELS, true),
             "railways:y25", new DoubleAxleStyle(
                     railways("block/bogey/y25/frame"), LONG_SHAFTED_WHEELS, true)
+    );
+
+    // -----------------------------------------------------------------------------
+    // Triple axle family
+    // -----------------------------------------------------------------------------
+    //
+    // Two style ids - heavyweight, radial - and one shared code path. Both
+    // `standard/triple_axle/*Display` classes are a single-line constructor,
+    // `super(provider, FRAME, WHEELS, lowerPivot)`; the wheel count (always three) and
+    // wheel maths live once in `triple_axle/base/TripleAxleBogeyDisplay`: three wheel
+    // instances at `translate(0, 0.75, (i - 1) * 1.5)` for i in 0..2 - the same
+    // run(3, -1.5f) z spacing the medium family's own triple-wheel rows already use -
+    // then `rotateX(a)`, then `translateY(lowerPivot ? -0.75 : 0)`. That trailing
+    // translateY is exactly the double-axle family's own lowerPivot pattern below, just
+    // with three axles instead of two.
+    //
+    // Read by javap, one row per style:
+    //   heavyweight  HEAVYWEIGHT_FRAME, LONG_SHAFTED_WHEELS, lowerPivot=true
+    //   radial       RADIAL_FRAME,      SMALL_BOGEY_WHEELS,  lowerPivot=false
+    //
+    // Both sit on the same block, railways:tripleaxle_bogey.
+
+    private record TripleAxleStyle(ResourceLocation frame, ResourceLocation wheels, boolean lowerPivot) {
+    }
+
+    private static final Map<String, TripleAxleStyle> TRIPLE_AXLE_STYLES = Map.of(
+            "railways:heavyweight", new TripleAxleStyle(
+                    railways("block/bogey/heavyweight/frame"), LONG_SHAFTED_WHEELS, true),
+            "railways:radial", new TripleAxleStyle(
+                    railways("block/bogey/radial/frame"), ContraptionProvider.SMALL_BOGEY_WHEEL_MODEL, false)
     );
 
     // -----------------------------------------------------------------------------
@@ -287,9 +344,17 @@ final class BogeyStyles {
         if (medium != null) {
             return mediumAttachments(pos, axis, medium);
         }
+        SingleAxleStyle singleAxle = SINGLE_AXLE_STYLES.get(styleId);
+        if (singleAxle != null) {
+            return singleAxleAttachments(pos, axis, singleAxle);
+        }
         DoubleAxleStyle doubleAxle = DOUBLE_AXLE_STYLES.get(styleId);
         if (doubleAxle != null) {
             return doubleAxleAttachments(pos, axis, doubleAxle);
+        }
+        TripleAxleStyle tripleAxle = TRIPLE_AXLE_STYLES.get(styleId);
+        if (tripleAxle != null) {
+            return tripleAxleAttachments(pos, axis, tripleAxle);
         }
         LargeCreateStyle largeCreateStyled = LARGE_CREATE_STYLES.get(styleId);
         if (largeCreateStyled != null) {
@@ -309,6 +374,37 @@ final class BogeyStyles {
                     ContraptionProvider.WHEEL_AXIS,
                     ContraptionProvider.WHEEL_RADIUS_SMALL);
             out.add(new ModelAttachment(pos, MEDIUM_SHARED_WHEELS, Map.of(), transform, spin));
+        }
+        return out;
+    }
+
+    private static List<ModelAttachment> singleAxleAttachments(BlockPos pos, Direction.Axis axis,
+                                                                SingleAxleStyle style) {
+        List<ModelAttachment> out = new ArrayList<>();
+        out.add(new ModelAttachment(pos, style.frame(), Map.of(),
+                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+        Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, 0f);
+        ModelAttachment.Spin spin = new ModelAttachment.Spin(
+                ContraptionProvider.WHEEL_PIVOT, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_SMALL);
+        out.add(new ModelAttachment(pos, ContraptionProvider.SMALL_BOGEY_WHEEL_MODEL, Map.of(), transform, spin));
+        return out;
+    }
+
+    private static List<ModelAttachment> tripleAxleAttachments(BlockPos pos, Direction.Axis axis,
+                                                                TripleAxleStyle style) {
+        List<ModelAttachment> out = new ArrayList<>();
+        out.add(new ModelAttachment(pos, style.frame(), Map.of(),
+                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+        Vector3f pivot = style.lowerPivot()
+                ? new Vector3f(0f, DOUBLE_AXLE_WHEEL_PIVOT_Y, 0f)
+                : ContraptionProvider.WHEEL_PIVOT;
+        for (float z : run(3, -1.5f)) {
+            Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                    ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, z);
+            ModelAttachment.Spin spin = new ModelAttachment.Spin(
+                    pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_SMALL);
+            out.add(new ModelAttachment(pos, style.wheels(), Map.of(), transform, spin));
         }
         return out;
     }

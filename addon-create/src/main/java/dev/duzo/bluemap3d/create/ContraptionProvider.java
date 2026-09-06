@@ -178,6 +178,11 @@ public final class ContraptionProvider implements SceneObjectProvider {
             ResourceLocation.fromNamespaceAndPath("railways", "medium_quadruple_wheel"),
             ResourceLocation.fromNamespaceAndPath("railways", "medium_quintuple_wheel"));
 
+    // Steam 'n' Rails block for BogeyStyles' single-axle family (singleaxle, leafspring,
+    // coilspring). All three sit on this one block, told apart only by the style nbt.
+    private static final ResourceLocation SINGLE_AXLE_BOGEY_BLOCK =
+            ResourceLocation.fromNamespaceAndPath("railways", "singleaxle_bogey");
+
     // Steam 'n' Rails blocks for BogeyStyles' display-based family (archbar, blomberg,
     // freight, modern, passenger, y25). Read off CRBogeyStyles: freight, archbar and y25
     // sit on the "large platform" double-axle block, the other three on the plain one -
@@ -185,6 +190,11 @@ public final class ContraptionProvider implements SceneObjectProvider {
     private static final Set<ResourceLocation> DOUBLE_AXLE_BOGEY_BLOCKS = Set.of(
             ResourceLocation.fromNamespaceAndPath("railways", "doubleaxle_bogey"),
             ResourceLocation.fromNamespaceAndPath("railways", "large_platform_doubleaxle_bogey"));
+
+    // Steam 'n' Rails block for BogeyStyles' triple-axle family (heavyweight, radial).
+    // Both sit on this one block, told apart only by the style nbt.
+    private static final ResourceLocation TRIPLE_AXLE_BOGEY_BLOCK =
+            ResourceLocation.fromNamespaceAndPath("railways", "tripleaxle_bogey");
 
     // Steam 'n' Rails blocks for BogeyStyles' large-Create-styled family (0-4-0 through
     // 0-12-0). Each style id has its own block, unlike the families above.
@@ -802,7 +812,8 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * above for where each of those numbers came from.
      *
      * <p>Every other recognised block - the Steam 'n' Rails blocks the medium,
-     * double-axle and large-Create-styled families can sit on - is handed to
+     * single-axle, double-axle, triple-axle and large-Create-styled families can sit
+     * on - is handed to
      * {@link BogeyStyles} keyed on its style id, which returns no parts at all for a
      * style it does not know either.
      */
@@ -813,7 +824,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
         boolean small = SMALL_BOGEY.equals(id);
         boolean large = LARGE_BOGEY.equals(id);
         if (!small && !large && !MEDIUM_BOGEY_BLOCKS.contains(id)
+                && !SINGLE_AXLE_BOGEY_BLOCK.equals(id)
                 && !DOUBLE_AXLE_BOGEY_BLOCKS.contains(id)
+                && !TRIPLE_AXLE_BOGEY_BLOCK.equals(id)
                 && !LARGE_CREATE_STYLED_BOGEY_BLOCKS.contains(id)) {
             return;
         }
