@@ -74,7 +74,7 @@ publishMods {
     }
     curseforge {
         accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
-        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_CREATE")
+        projectId = "1685152"
         projectSlug = "bluemap-create"
         minecraftVersions.addAll(mcVersions)
         clientRequired = false

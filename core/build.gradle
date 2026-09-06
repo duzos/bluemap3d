@@ -36,7 +36,7 @@ publishMods {
     curseforge {
         accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
         // TODO: replace once the project is created on CurseForge.
-        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_BLUEMAP3D")
+        projectId = "1685144"
         projectSlug = "bluemap3d"
         minecraftVersions.addAll(mcVersions)
         clientRequired = false

@@ -42,7 +42,3 @@ jobs:
         run: ./gradlew :${{ inputs.module }}:publishCurseforge
         env:
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
-          CURSEFORGE_PROJECT_BLUEMAP3D: ${{ secrets.CURSEFORGE_PROJECT_BLUEMAP3D }}
-          CURSEFORGE_PROJECT_TURTLES: ${{ secrets.CURSEFORGE_PROJECT_TURTLES }}
-          CURSEFORGE_PROJECT_SABLE: ${{ secrets.CURSEFORGE_PROJECT_SABLE }}
-          CURSEFORGE_PROJECT_CREATE: ${{ secrets.CURSEFORGE_PROJECT_CREATE }}

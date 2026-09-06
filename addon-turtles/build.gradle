@@ -45,7 +45,7 @@ publishMods {
     }
     curseforge {
         accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
-        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_TURTLES")
+        projectId = "1685151"
         projectSlug = "bluemap-computer-craft"
         minecraftVersions.addAll(mcVersions)
         clientRequired = false

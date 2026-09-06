@@ -51,7 +51,7 @@ publishMods {
     }
     curseforge {
         accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
-        projectId = providers.environmentVariable("CURSEFORGE_PROJECT_SABLE")
+        projectId = "1685147"
         projectSlug = "bluemap-aeronautics"
         minecraftVersions.addAll(mcVersions)
         clientRequired = false
