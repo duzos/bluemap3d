@@ -78,7 +78,9 @@ First release. Real 3D geometry inside BlueMap's three.js scene, for NeoForge 1.
   Steam 'n' Rails' hundred-and-fifty-odd wood, narrow-gauge and wide-gauge tracks all draw
   as themselves; its monorail curves stay andesite, since a monorail curve is a girder
   rather than sleepers and rails.
-- Bogey wheels turn with the carriage they ride under, small and large bogeys both.
+- Bogey wheels turn with the carriage they ride under, small and large bogeys both, plus all
+  twenty-seven Steam 'n' Rails bogey styles across its medium, double-axle, large-Create-styled,
+  single-axle and triple-axle families.
 - Bearing caps - mechanical, windmill and clockwork alike - turn at the rate they actually
   turn in game, not a speed value that can be spinning while the bearing itself is stalled.
 - Station flags raise and lower and change texture for whether a train is present, absent,

@@ -32,6 +32,8 @@ Also shows:
 - **Windmills and bearings** turning on their real axis
 - **Gantry carriages** sliding along the shaft
 - **Pistons and pulleys**, including rope and elevator pulleys
+- **[Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails) bogeys**, drawn with their own
+  wheels and frames instead of Create's, if you have it installed
 
 Anything Create moves as a contraption gets moved on the map too.
 
@@ -43,10 +45,10 @@ Put BlueMap3D, BlueMap: Create and [Create](https://modrinth.com/mod/create) in 
 next to [BlueMap](https://modrinth.com/mod/bluemap). Works with the defaults.
 
 A config file appears at `config/bluemap3d_create-server.toml` after the first run, with
-settings for curved track (`curvedTrack`, `gridSize`, `maxCurveObjects`), bearing caps
-(`bearingCaps`, `maxBearingCaps`, `maxBearingCacheEntries`), station flags (`stationFlags`,
-`maxStationFlags`) and a verbose logging switch (`verboseTrackLogging`). Most servers will
-not need to touch it.
+settings for curved track (`curvedTrack`, `gridSize`, `maxCurveObjects`, `trackMaterials`),
+bearing caps (`bearingCaps`, `maxBearingCaps`, `maxBearingCacheEntries`), station flags
+(`stationFlags`, `maxStationFlags`) and a verbose logging switch (`verboseTrackLogging`).
+Most servers will not need to touch it.
 
 ## Fast windmills look weird
 
@@ -71,6 +73,11 @@ ascending and crossing track all draw too.
 They get drawn as their block shape, without the lid or the text. Contraptions have a lot of
 these so it is the most obvious gap.
 
+**Do Steam 'n' Rails trains show right?**
+Mostly. Its bogey styles draw with their own wheels and frames instead of Create's; a handful
+of its more unusual bogeys, and its monorail track, still draw a bit generic instead of
+exactly right.
+
 **Will a big railway lag the server?**
 No. A carriage is drawn once and then only sent a position.
 
@@ -80,6 +87,7 @@ No. A carriage is drawn once and then only sent a position.
 ## Links
 
 - [Create](https://modrinth.com/mod/create)
+- [Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails)
 - [BlueMap](https://modrinth.com/mod/bluemap)
 - [BlueMap3D](https://modrinth.com/mod/bluemap3d)
 - [Bug reports](https://github.com/duzos/bluemap3d/issues)

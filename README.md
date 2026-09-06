@@ -31,7 +31,7 @@ BlueMap3D on its own does nothing. Install at least one of these:
 
 | Add-on | Shows | Needs |
 | --- | --- | --- |
-| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions | [Create](https://modrinth.com/mod/create) |
+| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions, plus bogey styles from [Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails) | [Create](https://modrinth.com/mod/create) |
 | **[BlueMap: Aeronautics](https://modrinth.com/mod/owyPt6vs)** | Airships, planes, cars | [Sable](https://modrinth.com/mod/sable) |
 | **[Bluemap: Computer Craft](https://modrinth.com/mod/uWqMFrYC)** | Turtles, with their labels and tools | [CC:Tweaked](https://modrinth.com/mod/cc-tweaked) |
 
