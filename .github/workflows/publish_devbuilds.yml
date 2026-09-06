@@ -1,7 +1,10 @@
 name: Automated dev builds
 
 on:
-  workflow_dispatch:
+  # Push only. The upload action supports one mode, "commit", which reads the
+  # pushed commits to build its message, so a manual dispatch has nothing to read
+  # and dies with "Cannot read properties of undefined". A button that always
+  # fails is worse than no button.
   push:
     branches:
       - master
