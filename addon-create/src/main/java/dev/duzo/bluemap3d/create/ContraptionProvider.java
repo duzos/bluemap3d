@@ -160,6 +160,19 @@ public final class ContraptionProvider implements SceneObjectProvider {
     // its axis needs no Create class either - the axis property Create's own
     // AbstractBogeyBlock exposes is just vanilla BlockStateProperties.HORIZONTAL_AXIS.
 
+    /**
+     * Bumped by hand when a release changes how a contraption's geometry is drawn without
+     * changing the world data it is drawn from.
+     *
+     * <p>A carriage's {@link SceneObject#geometryVersion()} hashes its block states and
+     * bogey styles, and the mesh URL carries that hash, so the browser caches a mesh body
+     * per hash. A code change that moves an attachment - dropping a bogey frame onto its
+     * axle, say - leaves every one of those inputs identical, so the URL does not move and
+     * viewers keep the mesh they already have. That cost a whole debugging session: the
+     * fix was correct on disk and the page kept showing the old geometry.
+     */
+    private static final long GEOMETRY_REVISION = 1L;
+
     // Create's own two bogey BLOCKS. These are block ids, not block entity type ids, and
     // the difference has already cost one debugging session: Create registers a single
     // block entity type "create:bogey" shared by both blocks, and Steam 'n' Rails does the
@@ -675,6 +688,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
             addBogeyAttachments(pos, entry.getValue(), style, attachments);
         }
         version = mix(version, source.size());
+        version = mix(version, GEOMETRY_REVISION);
 
         BlockVolume volume = BlockVolume.of(blocks, PIVOT, attachments);
         return new CarriageGeometry(volume, version);
