@@ -31,9 +31,10 @@ import java.util.Map;
  *
  * <p>To add a new style: add one row to the family's map (or a new family's map and a new
  * branch in {@link #attachmentsFor}), keyed on the exact {@code railways:<id>} string that
- * appears in the block entity's {@code BogeyData/BogeyStyle} tag. No other change is
- * needed - the block-id gate in {@link ContraptionProvider} only needs to recognise the
- * block the new style can sit on, which for the medium family is already done for all six.
+ * appears in the block entity's {@code BogeyData/BogeyStyle} tag. That really is the only
+ * change needed: {@link ContraptionProvider} dispatches on the style id alone and keeps no
+ * list of the blocks these styles can sit on, so nothing there goes stale when a row is
+ * added here.
  */
 final class BogeyStyles {
 
@@ -42,6 +43,45 @@ final class BogeyStyles {
 
     private static ResourceLocation railways(String path) {
         return ResourceLocation.fromNamespaceAndPath("railways", path);
+    }
+
+    // -----------------------------------------------------------------------------
+    // Heights
+    // -----------------------------------------------------------------------------
+    //
+    // ContraptionProvider's own four Create parts fix the rule this whole file has to
+    // follow: a part's vertical offset is its renderer's NET static lift - the y it is
+    // left at once every translate in its update() has been applied at angle zero - plus
+    // one universal correction. Read off those four:
+    //
+    //   SMALL_BOGEY_WHEELS  net lift 0.75  -> BOGEY_DROP + SMALL_AXLE_HEIGHT  = -0.75
+    //   LARGE_BOGEY_WHEELS  net lift 1.0   -> BOGEY_DROP + LARGE_AXLE_HEIGHT  = -0.5
+    //   BOGEY_DRIVE/PISTON  net lift 0     -> BOGEY_DROP + BOGEY_DRIVE_HEIGHT = -1.5
+    //   BOGEY_PIN           net lift 1.25  -> BOGEY_DROP + BOGEY_PIN_HEIGHT   = -0.25
+    //
+    // so offset = net lift - 1.5, and BOGEY_DROP + H is that written as H = net lift - 0.75.
+    //
+    // "Net" is the word this file previously got wrong, and it is what made both of the
+    // user-reported styles sit high. Every one of these families draws its frame with a
+    // bare `self()` - no translate at all, net lift 0 - and draws a "lowerPivot" wheel as
+    // translate(0, L, z), rotateX(a), translate(0, -L, 0), whose trailing un-translate
+    // cancels the lift as well as placing the spin pivot: net lift 0, not L. Both were
+    // being given BOGEY_DROP alone, which is the offset for a net lift of 0.75, so every
+    // frame and every lowered-pivot wheel in this file floated exactly 0.75 blocks above
+    // where Steam 'n' Rails draws it. A wheel with no un-translate (net lift 0.75, the
+    // lowerPivot=false rows and the single-axle family) was already right and stays as it
+    // was.
+    //
+    // BOGEY_DRIVE_HEIGHT is reused for the net-lift-0 case rather than restating -0.75,
+    // because that is exactly what it is: Create's own gearbox and piston have no static
+    // translate either. Deliberately NOT reusing FRAME_HEIGHT for these frames - that
+    // constant carries a further empirical nudge for bogey_frame.obj's own baked-in
+    // offset, which is a fact about Create's mesh and not about anybody else's.
+    private static final float UNLIFTED_HEIGHT = ContraptionProvider.BOGEY_DRIVE_HEIGHT;
+
+    /** The height for a wheel drawn with, or without, the trailing lift-cancelling translate. */
+    private static float wheelHeight(boolean lowerPivot) {
+        return lowerPivot ? UNLIFTED_HEIGHT : ContraptionProvider.SMALL_AXLE_HEIGHT;
     }
 
     // -----------------------------------------------------------------------------
@@ -58,10 +98,11 @@ final class BogeyStyles {
     //
     // Every style uses the same wheel model, MEDIUM_SHARED_WHEELS, and the same wheel
     // maths: translate(0, 0.8125, z), rotateX(a), translate(0, -0.8125, 0) - a spin about
-    // the model point (0, 0.8125, 0), exactly the "lowerPivot" pattern this addon's own
-    // double-axle bogey reasoning already covers (see ContraptionProvider's bogey comment
-    // block): Spin's own pivot parameter says where that point is, so the un-translate
-    // never needs expressing separately.
+    // the model point (0, 0.8125, 0), exactly the "lowerPivot" pattern the double-axle
+    // family below also uses. The trailing un-translate does two things at once, and only
+    // one of them is the Spin pivot: it also cancels the lift, leaving a net static lift of
+    // zero. See the Heights block above - reading it as pivot-only is what put every one of
+    // these frames and wheels 0.75 blocks too high.
     //
     // The wheel radius is CRBogeyBlock.getWheelRadius(), 0.40625 in block units - the same
     // 6.5 (in the model's 0..16 space) Create's own small bogey wheel already uses, so
@@ -173,7 +214,8 @@ final class BogeyStyles {
     // lowerPivot true puts the pivot at model y 0.75 (times 16) and lowerPivot false
     // leaves it at the wheel model's own origin - the same origin Create's own
     // SMALL_BOGEY_WHEELS pivot already uses, which is exactly the wheel model archbar
-    // and blomberg (lowerPivot false) draw. The wheel radius is the same
+    // and blomberg (lowerPivot false) draw. It settles the height too, not just the
+    // pivot: see the Heights block above and wheelHeight(). The wheel radius is the same
     // WHEEL_RADIUS_SMALL every standard-size Steam 'n' Rails bogey shares.
     //
     // Constructor arguments read by javap, one row per style:
@@ -273,16 +315,12 @@ final class BogeyStyles {
     // translate(0, -1, 0) - so they share LARGE_AXLE_HEIGHT too, just with a Spin pivot
     // at model y 1.0 (times 16) instead of the driver wheel's own origin.
     //
-    // The frame and piston are the one place this family does NOT reuse Create's own
-    // height constants. Create's own BOGEY_DRIVE/BOGEY_PISTON read a raw translate of
-    // 0 - 0.75 in the client renderer (BOGEY_DRIVE_HEIGHT), but this family's own frame
-    // and piston update() calls carry no static translate at all before the piston's
-    // oscillation term - meaning these obj meshes, unlike Create's, are already authored
-    // at the correct rest height, needing only BOGEY_DROP's universal block-centre
-    // correction and nothing more. Not a guess: read directly off both classes'
-    // decompiled bytecode side by side. If a live render disagrees, this pair is the one
-    // most likely to need an empirical nudge, the same way FRAME_HEIGHT once did for
-    // Create's own bogey frame.
+    // The frame and piston sit at exactly the same height as Create's own BOGEY_DRIVE and
+    // BOGEY_PISTON, and for exactly the same reason: neither carries a static translate
+    // before the piston's oscillation term, so both have a net static lift of zero. An
+    // earlier reading of this had them at BOGEY_DROP alone, on the theory that these obj
+    // meshes were authored at the right rest height already - they are not, and that put
+    // the whole superstructure 0.75 blocks above the wheels it belongs to.
     //
     // The z offsets below were read off decompiled bytecode constants for all five
     // classes, not measured by eye against a running server - expect the same kind of
@@ -366,9 +404,13 @@ final class BogeyStyles {
     private static List<ModelAttachment> mediumAttachments(BlockPos pos, Direction.Axis axis, MediumStyle style) {
         List<ModelAttachment> out = new ArrayList<>();
         out.add(new ModelAttachment(pos, style.frame(), Map.of(),
-                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+                ContraptionProvider.bogeyTransform(axis,
+                        ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f)));
         for (float z : style.wheelZOffsets()) {
-            Matrix4f transform = ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, z);
+            // Every medium wheel is a lowered-pivot one - translate(0, 0.8125, z),
+            // rotateX(a), translate(0, -0.8125, 0) - so its net lift is zero.
+            Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                    ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, z);
             ModelAttachment.Spin spin = new ModelAttachment.Spin(
                     new Vector3f(0f, MEDIUM_WHEEL_PIVOT_Y, 0f),
                     ContraptionProvider.WHEEL_AXIS,
@@ -382,7 +424,8 @@ final class BogeyStyles {
                                                                 SingleAxleStyle style) {
         List<ModelAttachment> out = new ArrayList<>();
         out.add(new ModelAttachment(pos, style.frame(), Map.of(),
-                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+                ContraptionProvider.bogeyTransform(axis,
+                        ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f)));
         Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
                 ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, 0f);
         ModelAttachment.Spin spin = new ModelAttachment.Spin(
@@ -395,13 +438,14 @@ final class BogeyStyles {
                                                                 TripleAxleStyle style) {
         List<ModelAttachment> out = new ArrayList<>();
         out.add(new ModelAttachment(pos, style.frame(), Map.of(),
-                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+                ContraptionProvider.bogeyTransform(axis,
+                        ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f)));
         Vector3f pivot = style.lowerPivot()
                 ? new Vector3f(0f, DOUBLE_AXLE_WHEEL_PIVOT_Y, 0f)
                 : ContraptionProvider.WHEEL_PIVOT;
         for (float z : run(3, -1.5f)) {
             Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
-                    ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, z);
+                    ContraptionProvider.BOGEY_DROP + wheelHeight(style.lowerPivot()), z);
             ModelAttachment.Spin spin = new ModelAttachment.Spin(
                     pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_SMALL);
             out.add(new ModelAttachment(pos, style.wheels(), Map.of(), transform, spin));
@@ -413,13 +457,14 @@ final class BogeyStyles {
                                                                 DoubleAxleStyle style) {
         List<ModelAttachment> out = new ArrayList<>();
         out.add(new ModelAttachment(pos, style.frame(), Map.of(),
-                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+                ContraptionProvider.bogeyTransform(axis,
+                        ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f)));
         Vector3f pivot = style.lowerPivot()
                 ? new Vector3f(0f, DOUBLE_AXLE_WHEEL_PIVOT_Y, 0f)
                 : ContraptionProvider.WHEEL_PIVOT;
         for (float z : new float[]{ContraptionProvider.SMALL_AXLE_SPACING, -ContraptionProvider.SMALL_AXLE_SPACING}) {
             Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
-                    ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, z);
+                    ContraptionProvider.BOGEY_DROP + wheelHeight(style.lowerPivot()), z);
             ModelAttachment.Spin spin = new ModelAttachment.Spin(
                     pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_SMALL);
             out.add(new ModelAttachment(pos, style.wheels(), Map.of(), transform, spin));
@@ -431,7 +476,11 @@ final class BogeyStyles {
                                                                        LargeCreateStyle style) {
         List<ModelAttachment> out = new ArrayList<>();
 
-        Matrix4f frameTransform = ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f);
+        // The frame is a bare self() and the piston's only translate is its own
+        // oscillation term, so both have a net lift of zero - the same net lift Create's
+        // own BOGEY_DRIVE and BOGEY_PISTON have, and therefore the same height.
+        Matrix4f frameTransform = ContraptionProvider.bogeyTransform(axis,
+                ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f);
         out.add(new ModelAttachment(pos, style.frame(), Map.of(), frameTransform));
 
         ModelAttachment.Oscillate pistonMotion = new ModelAttachment.Oscillate(
@@ -442,13 +491,18 @@ final class BogeyStyles {
 
         for (float z : style.driverZ()) {
             out.add(largeWheel(pos, axis, ContraptionProvider.LARGE_BOGEY_WHEEL_MODEL, z,
-                    ContraptionProvider.WHEEL_PIVOT));
+                    ContraptionProvider.WHEEL_PIVOT, ContraptionProvider.LARGE_AXLE_HEIGHT));
         }
+        // A blind axle is translate(0, 1, z), rotateX(a), translate(0, -1, 0): the same
+        // lowered-pivot shape as every other family here, so a net lift of zero rather
+        // than the driver wheels' 1.0.
         for (float z : style.semiBlindZ()) {
-            out.add(largeWheel(pos, axis, LC_STYLE_SEMI_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT));
+            out.add(largeWheel(pos, axis, LC_STYLE_SEMI_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT,
+                    UNLIFTED_HEIGHT));
         }
         for (float z : style.fullBlindZ()) {
-            out.add(largeWheel(pos, axis, LC_STYLE_FULL_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT));
+            out.add(largeWheel(pos, axis, LC_STYLE_FULL_BLIND_WHEELS, z, LC_STYLE_LOWERED_PIVOT,
+                    UNLIFTED_HEIGHT));
         }
         for (float z : style.pinZ()) {
             Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
@@ -462,9 +516,9 @@ final class BogeyStyles {
     }
 
     private static ModelAttachment largeWheel(BlockPos pos, Direction.Axis axis, ResourceLocation model,
-                                               float z, Vector3f pivot) {
+                                               float z, Vector3f pivot, float height) {
         Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
-                ContraptionProvider.BOGEY_DROP + ContraptionProvider.LARGE_AXLE_HEIGHT, z);
+                ContraptionProvider.BOGEY_DROP + height, z);
         ModelAttachment.Spin spin = new ModelAttachment.Spin(
                 pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_LARGE);
         return new ModelAttachment(pos, model, Map.of(), transform, spin);
