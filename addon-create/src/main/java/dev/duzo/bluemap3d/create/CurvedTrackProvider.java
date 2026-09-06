@@ -80,8 +80,9 @@ import java.util.stream.Collectors;
  * that is what the owning block entity uses to key its own connection map.
  *
  * <p>Two model pieces repeat along the curve: a tie (sleeper) at every step, and a pair of
- * rail segments - one left, one right - bridging each step to the next. The tie and rail
- * models are authored with their own length axis on local Z, height on Y and width on X,
+ * rail segments - one left, one right - bridging each step to the next. Which three models
+ * those are depends on what the track is built from and is worked out by
+ * {@link TrackModels}; they are authored with their own length axis on local Z, height on Y and width on X,
  * which lines up with {@code derivative}, {@code faceNormal} and {@code normal} respectively,
  * so each piece's transform is just: translate to its anchor point, rotate so those three
  * local axes match that frame's three world vectors, then apply the small baked-in offset
@@ -107,12 +108,24 @@ import java.util.stream.Collectors;
  * models are ordinary {@code elements} JSON, BlueMap's regular terrain scan already draws
  * them, and adding them here would draw them a second time.
  *
+ * <p>Another mod's track needs nothing extra here. Steam 'n' Rails' track blocks - all
+ * hundred and fifty of them - extend Create's own {@link TrackBlock} and reuse its
+ * {@link TrackShape}, so they are already in Create's railway graph, already walked by
+ * {@link #collectTrackBlocks}, and their models sit at the same shape names under their own
+ * namespace. What used to stop them drawing was one level up, in core: their models are
+ * texture-only overrides of Create's obj models, and core only looked for the obj loader on
+ * the leaf model rather than up the parent chain, so every one of them fell through to a
+ * flat grey map-colour lump.
+ *
  * <h2>Known limitations, accepted rather than fixed here</h2>
  * <ul>
- *   <li><b>Always andesite.</b> {@code obj_track.json} hardcodes
- *       {@code create:block/standard_track} as the texture for every track model. The real
- *       material lives on {@link com.simibubi.create.content.trains.track.TrackMaterial},
- *       whose fields are Registrate-typed and out of scope for this pass.</li>
+ *   <li><b>Monorail curves are still andesite.</b> Every other track material draws its
+ *       curves from its own tie and rail models, found from its blockstate by
+ *       {@link TrackModels}. Steam 'n' Rails' monorail is the exception: a monorail curve
+ *       is an overhead girder, not sleepers and rails, and the models in its directory are
+ *       straight-block pieces that would tile wrongly along a bezier. See
+ *       {@link TrackModels} for why the andesite fallback is the better of the two wrong
+ *       answers there.</li>
  *   <li><b>Static.</b> These cells never move, so republishing their transform every publish
  *       interval - which core does for every object regardless - is pure overhead. Keeping
  *       the cell count low via {@link CreateConfig#CURVE_GRID_SIZE} and
@@ -127,12 +140,17 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
     /** FNV-1a's 64 bit offset basis. Same mixer and basis {@link ContraptionProvider} uses. */
     private static final long FNV_OFFSET = 0xcbf29ce484222325L;
 
-    private static final ResourceLocation TIE_MODEL =
-            ResourceLocation.fromNamespaceAndPath("create", "block/track/tie");
-    private static final ResourceLocation RAIL_LEFT_MODEL =
-            ResourceLocation.fromNamespaceAndPath("create", "block/track/segment_left");
-    private static final ResourceLocation RAIL_RIGHT_MODEL =
-            ResourceLocation.fromNamespaceAndPath("create", "block/track/segment_right");
+    /**
+     * Bumped by hand whenever this file changes the shape of what it emits without the
+     * world having changed.
+     *
+     * <p>A cell's {@link SceneObject#geometryVersion()} hashes the curves and blocks it
+     * was built from, so a code change that draws the same track differently - swapping a
+     * curve's andesite models for its own material's, say - produces the same hash and the
+     * browser keeps serving the mesh it already cached. Mixing this in forces one re-bake
+     * on the release that changes.
+     */
+    private static final long GEOMETRY_REVISION = 2L;
 
     /**
      * Half the rail gauge, in blocks. Create's own constant - it is exactly what
@@ -420,14 +438,18 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
             // world-absolute - see the class header. Adding it back is what turns the
             // connection's own coordinates into real world coordinates.
             Vec3 curveOrigin = Vec3.atLowerCornerOf(curve.bePositions.getFirst());
-            addCurve(curve, curveOrigin, cellOrigin, attachments, bounds);
+            TrackModels models = TrackModels.forMaterial(curve.getMaterial());
+            addCurve(curve, models, curveOrigin, cellOrigin, attachments, bounds);
             // Seeded with a position first, same reasoning as ContraptionProvider's own
             // per-block seeding: two curves of the same shape and length - a mirrored pair
             // of standard bends is the obvious case - write identical nbt, and an
             // unseeded commutative fold would let one curve's hash cancel the other's.
             CompoundTag nbt = curve.write(BlockPos.ZERO);
             long seed = curve.bePositions.getFirst().asLong();
-            version ^= mix(mix(FNV_OFFSET, seed), nbt.hashCode());
+            // The models go into the hash as well as the curve's own shape: two curves of
+            // identical geometry in different materials are drawn differently, so they must
+            // not bake to the same mesh.
+            version ^= mix(mix(mix(FNV_OFFSET, seed), nbt.hashCode()), models.hashCode());
         }
 
         // Track blocks are added as real blocks, not attachments - see the class header on
@@ -452,6 +474,7 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
         }
         version = mix(version, curves.size());
         version = mix(version, localBlocks.size());
+        version = mix(version, GEOMETRY_REVISION);
 
         BlockPos min = new BlockPos(
                 (int) Math.floor(bounds.minX), (int) Math.floor(bounds.minY), (int) Math.floor(bounds.minZ));
@@ -519,8 +542,8 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
      * is safe, but holding a {@code Segment} across iterations is not, so every field this
      * needs is copied out (or derived) before moving on.
      */
-    private static void addCurve(BezierConnection curve, Vec3 curveOrigin, Vec3 cellOrigin,
-                                 List<ModelAttachment> attachments, Bounds bounds) {
+    private static void addCurve(BezierConnection curve, TrackModels models, Vec3 curveOrigin,
+                                 Vec3 cellOrigin, List<ModelAttachment> attachments, Bounds bounds) {
         Vec3 prevPos = null;
         Vec3 prevRight = null;
         Vec3 prevUp = null;
@@ -545,7 +568,7 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
 
             Matrix4f tie = frameMatrix(pos, cellOrigin, right, up, fwd)
                     .translate(TIE_OFFSET_X, TIE_OFFSET_Y, TIE_OFFSET_Z);
-            attachments.add(new ModelAttachment(BlockPos.ZERO, TIE_MODEL, Map.of(), tie));
+            attachments.add(new ModelAttachment(BlockPos.ZERO, models.tie(), Map.of(), tie));
             expandBounds(bounds, pos, cellOrigin);
 
             if (prevPos != null) {
@@ -555,9 +578,9 @@ public final class CurvedTrackProvider implements SceneObjectProvider {
                     float scaleZ = stepLength / RAIL_NATIVE_LENGTH * RAIL_OVERLAP;
                     Vec3 railLeft = prevPos.add(prevRight.scale(GAUGE_HALF_WIDTH));
                     Vec3 railRight = prevPos.subtract(prevRight.scale(GAUGE_HALF_WIDTH));
-                    addRail(RAIL_LEFT_MODEL, railLeft, cellOrigin, prevRight, prevUp, prevFwd,
+                    addRail(models.leftRail(), railLeft, cellOrigin, prevRight, prevUp, prevFwd,
                             scaleZ, attachments, bounds);
-                    addRail(RAIL_RIGHT_MODEL, railRight, cellOrigin, prevRight, prevUp, prevFwd,
+                    addRail(models.rightRail(), railRight, cellOrigin, prevRight, prevUp, prevFwd,
                             scaleZ, attachments, bounds);
                 }
             }

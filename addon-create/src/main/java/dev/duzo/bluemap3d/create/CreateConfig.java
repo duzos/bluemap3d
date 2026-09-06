@@ -18,6 +18,9 @@ public final class CreateConfig {
     /** Hard ceiling on the number of curve grid cells published per level. */
     public static final ModConfigSpec.IntValue MAX_CURVE_OBJECTS;
 
+    /** Whether a curve is drawn in its own track material. See {@link TrackModels}. */
+    public static final ModConfigSpec.BooleanValue TRACK_MATERIALS;
+
     /** Log what track discovery and cell building actually saw. See CurvedTrackProvider. */
     public static final ModConfigSpec.BooleanValue VERBOSE;
 
@@ -67,6 +70,17 @@ public final class CreateConfig {
                         "cells are simply left off the map until the count drops back down or",
                         "this is raised.")
                 .defineInRange("maxCurveObjects", 128, 1, 100_000);
+
+        TRACK_MATERIALS = builder
+                .comment("Draw a curve with the tie and rail models of the material it is",
+                        "actually built from, rather than Create's andesite for everything.",
+                        "",
+                        "On by default. Matters most with a mod like Steam 'n' Rails installed,",
+                        "where a rail network can be built from any of a hundred and fifty",
+                        "materials and every curve on the map would otherwise come out andesite.",
+                        "Costs one blockstate read per material, once, and nothing after that.",
+                        "Turn it off to go back to drawing every curve as andesite.")
+                .define("trackMaterials", true);
 
         VERBOSE = builder
                 .comment("Log, once per level, exactly what track discovery found and what each",
