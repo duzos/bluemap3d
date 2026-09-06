@@ -57,7 +57,7 @@ dependencies {
 
 publishMods {
     file = tasks.named('jar', Jar).flatMap { it.archiveFile }
-    changelog = providers.fileContents(rootProject.layout.projectDirectory.file("CHANGELOG.md")).asText
+    changelog = providers.fileContents(project.layout.projectDirectory.file("CHANGELOG.md")).asText
     type = STABLE
     version = "${project.version}-${minecraft_version}"
     displayName = "BlueMap: Create ${project.version} (${minecraft_version} NeoForge)"
