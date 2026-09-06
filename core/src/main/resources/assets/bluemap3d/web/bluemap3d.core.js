@@ -44,7 +44,7 @@
 
     var FEED_URL = "assets/bluemap3d/entities3d.json";
     var LOG = "[BlueMap3D]";
-    var BUILD = "core-9";
+    var BUILD = "core-10";
 
     /* Verbose per-poll diagnostics. Off by default - at two polls a second it is a lot of
      * console for a working install. Turn it on at runtime with
@@ -283,7 +283,9 @@
                     meshUrl: null,
                     dimension: row.dimension,
                     from: null,
-                    to: null
+                    to: null,
+                    odometer: 0,
+                    segmentTravel: 0
                 };
             }
             entry.dimension = row.dimension;
@@ -312,12 +314,10 @@
                 rot: row.rot
             };
             /* The segment we've been interpolating through is now entirely behind us -
-             * fold its full travel into each node's odometer before starting the next
-             * one. Guarded on entry.to because the first sighting has no prior segment. */
-            if (entry.to && entry.nodes) {
-                for (var n = 0; n < entry.nodes.length; n++) {
-                    entry.odometers[n] += entry.segmentTravel[n];
-                }
+             * fold its full travel into the odometer before starting the next one.
+             * Guarded on entry.to because the first sighting has no prior segment. */
+            if (entry.to) {
+                entry.odometer += entry.segmentTravel;
             }
 
             /* First sighting: no history to interpolate from, so sit still at the
@@ -325,14 +325,13 @@
             entry.from = entry.to || sample;
             entry.to = sample;
 
-            /* Per (entry, node), not per entry: travel is projected onto a rolling
-             * direction derived from that node's axis, and two nodes may have different
-             * axes. */
-            if (entry.nodes) {
-                for (var m = 0; m < entry.nodes.length; m++) {
-                    entry.segmentTravel[m] = nodeSegmentTravel(entry.nodes[m], entry.from, entry.to);
-                }
-            }
+            /* Per entry, not per node: how far the object moved over this segment is one
+             * distance, and every node of it has to be driven by that one number or the
+             * parts of one mechanism drift out of phase with each other. See
+             * segmentTravel(). */
+            entry.segmentTravel = entry.roll
+                ? segmentTravel(entry.roll, entry.from, entry.to)
+                : 0;
         });
 
         Object.keys(objects).forEach(function (id) {
@@ -420,11 +419,24 @@
 
         /* Zeroed rather than carried over. A wheel's absolute phase is unobservable, so
          * resetting costs nothing visually - unlike position, where this client goes to
-         * some trouble to preserve interpolation state. Carrying them would be actively
-         * wrong when the node count changes, which happens whenever a carriage re-bakes,
-         * and undefined + travel is NaN, which makes that child vanish. */
-        entry.odometers = new Array(resource.nodes.length);
-        entry.segmentTravel = new Array(resource.nodes.length);
+         * some trouble to preserve interpolation state. Carrying it would be actively
+         * wrong when the geometry changes, which happens whenever a carriage re-bakes,
+         * and undefined + travel is NaN, which makes every child vanish.
+         *
+         * One number for the whole object, not one per node. See segmentTravel(). */
+        entry.odometer = 0;
+        entry.segmentTravel = 0;
+        /* The object's own forward direction in its local frame, and per node the sign
+         * that turns travel along it into that node's own drive angle. Both derived once
+         * here from the node table rather than per segment, because both are fixed for
+         * as long as the geometry is. */
+        entry.roll = entryRoll(resource.nodes);
+        entry.nodeSigns = new Array(resource.nodes.length);
+        for (var s = 0; s < resource.nodes.length; s++) {
+            entry.nodeSigns[s] = entry.roll
+                ? nodeForward(resource.nodes[s]).dot(entry.roll)
+                : 0;
+        }
         /* KIND_RATE's own state: an accumulated angle plus the wall-clock time it was
          * last advanced at, per node. rateLastTime starts null rather than "now" so the
          * first writeTransform call for a fresh node establishes a baseline instead of
@@ -449,8 +461,6 @@
         }
 
         for (var j = 0; j < resource.nodes.length; j++) {
-            entry.odometers[j] = 0;
-            entry.segmentTravel[j] = 0;
             entry.rateAngles[j] = canCarryRate ? oldRateAngles[j] : 0;
             /* Null even when carrying the angle over, so the next writeTransform call
              * re-seeds the timestamp instead of integrating across the whole gap since
@@ -509,10 +519,16 @@
             );
 
         if (entry.nodeGroups) {
+            /* One travel for the whole object, in blocks, signed along entry.roll. Each
+             * node then flips it into its own frame with its own sign and divides by its
+             * own radius or period - the per-node part of the sum is a constant, so the
+             * parts of one mechanism can never drift apart no matter how long they run. */
+            var travel = entry.odometer + alpha * entry.segmentTravel;
+
             for (var i = 0; i < entry.nodeGroups.length; i++) {
                 var node = entry.nodes[i];
                 var group = entry.nodeGroups[i];
-                var value = entry.odometers[i] + alpha * entry.segmentTravel[i];
+                var value = travel * entry.nodeSigns[i];
 
                 if (node.kind === KIND_OSCILLATE) {
                     /* No pivot to cancel: the offset is added straight to the baked
@@ -556,7 +572,13 @@
                     entry.rateAngles[i] += node.rate * dt;
                     group.quaternion.setFromAxisAngle(node.axis, entry.rateAngles[i]);
                 } else {
-                    group.quaternion.setFromAxisAngle(node.axis, value);
+                    /* Divided by radius here rather than once per segment, so that the
+                     * accumulated quantity stays the object's travel in blocks and every
+                     * kind reads the same odometer. radius is constant for as long as the
+                     * node table is, and a re-bake zeroes the odometer anyway, so nothing
+                     * is reinterpreted under a changed divisor. */
+                    group.quaternion.setFromAxisAngle(
+                        node.axis, node.radius > 0 ? value / node.radius : 0);
                 }
             }
         }
@@ -566,26 +588,57 @@
     var UP = null;
 
     /**
-     * Travel of one node along its own rolling direction over one segment, projected
-     * from the object's displacement in that segment and expressed in the node's local
-     * (object-space) frame.
+     * The forward direction a single node is driven by, as a unit vector in the object's
+     * local (mesh) frame.
      *
-     * Shared by every node kind, not just spin: an oscillation or an orbit is driven by
-     * the same projection of the object's own displacement onto its node's axis, and
-     * differs only in what nodeSegmentTravel and writeTransform do with the result
-     * afterwards.
+     * Not the same derivation for every kind, and that difference is the whole point. A
+     * spin or an orbit declares an AXLE: the part turns about it, so the direction that
+     * drives it is perpendicular to it, normalize(cross(axis, UP)). An oscillation
+     * declares the SLIDE direction itself - a bogey piston's axis is the line it
+     * reciprocates along, which already points along the rails - so crossing it with UP
+     * would hand back the sideways direction instead, and the part would be driven by the
+     * object's lateral wobble rather than by how far it went. That is exactly what used
+     * to happen.
+     *
+     * Returns a zero vector when there is no meaningful direction: an axle within ~6
+     * degrees of vertical, where the normalised cross product is dominated by float error
+     * and gives a plausible but random direction.
      */
-    function rollTravel(axis, delta, fromRot) {
-        var roll = axis.clone().cross(UP);
-        if (roll.lengthSq() < 0.01) {
-            /* axis within ~6 degrees of vertical: no meaningful rolling direction, and
-             * the normalised cross product would be dominated by float error and give a
-             * plausible but random one. */
-            return 0;
+    function nodeForward(node) {
+        var forward;
+        if (node.kind === KIND_OSCILLATE) {
+            forward = node.axis.clone();
+        } else {
+            forward = node.axis.clone().cross(UP);
         }
-        roll.normalize();
-        var local = delta.clone().applyQuaternion(fromRot.clone().invert());
-        return local.dot(roll);
+        if (forward.lengthSq() < 0.01) {
+            return new THREE.Vector3(0, 0, 0);
+        }
+        return forward.normalize();
+    }
+
+    /**
+     * The one direction an object's travel is measured along, in its local frame, or null
+     * if none of its nodes offers one.
+     *
+     * Taken from the first node that has a usable forward direction, which for a bogey is
+     * a wheel. Any of them would do - what matters is that all the nodes of one object
+     * agree on one direction, so their signs (see replaceMesh) are all relative to the
+     * same thing.
+     */
+    function entryRoll(nodes) {
+        for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].kind === KIND_RATE) {
+                /* Driven by wall-clock time, never by travel, so its axis says nothing
+                 * about which way the object goes. */
+                continue;
+            }
+            var forward = nodeForward(nodes[i]);
+            if (forward.lengthSq() > 0) {
+                return forward;
+            }
+        }
+        return null;
     }
 
     /* A speed no real vehicle in this mod reaches under its own power. Anything faster
@@ -594,26 +647,35 @@
     var MAX_PLAUSIBLE_BLOCKS_PER_SECOND = 40;
 
     /**
-     * One node's contribution over the segment (from -> to), computed once here from the
-     * segment's starting orientation rather than per frame from the interpolated one.
-     * writeTransform slerps between from.rot and to.rot, so a per-frame recomputation
-     * would make odometer + alpha * travel non-monotonic in alpha and the part would
-     * visibly hunt back and forth through a curve.
+     * How far the object moved over the segment (from -> to), in blocks, signed along
+     * roll - one number for the object, not one per node.
      *
-     * For a spin this is already the angle (radians): dividing by radius here, once per
-     * segment, is what the odometer has always accumulated. Oscillation and orbit have
-     * no such fixed conversion baked in - period can change meaning per node in a way
-     * radius never needed to - so they get the raw travel (blocks) and convert it
-     * themselves at render time.
+     * Per object and not per node on purpose, and the shape it replaced looked deliberate
+     * enough to be worth saying why. The distance a carriage covered is a property of the
+     * carriage; every part that distance drives - wheel, piston, crank pin - has to read
+     * the same number, because they are one mechanism and their whole relationship is
+     * that they share one drive angle. Deriving a separate travel per node from that
+     * node's own axis let each one integrate a different projection of the same
+     * displacement, and once the projections differ at all the parts drift apart without
+     * bound: a bogey's pistons and wheels ended up hundreds of blocks of travel apart
+     * after a few minutes on a loop. Nodes still differ from each other, but only by a
+     * constant applied at render time - a sign, and a radius or period - which cannot
+     * accumulate.
+     *
+     * Computed once here from the segment's starting orientation rather than per frame
+     * from the interpolated one. writeTransform slerps between from.rot and to.rot, so a
+     * per-frame recomputation would make odometer + alpha * travel non-monotonic in alpha
+     * and the parts would visibly hunt back and forth through a curve.
      */
-    function nodeSegmentTravel(node, from, to) {
+    function segmentTravel(roll, from, to) {
         var fromRot = _scratch.set(from.rot[0], from.rot[1], from.rot[2], from.rot[3]);
         var delta = new THREE.Vector3(
             to.pos[0] - from.pos[0],
             to.pos[1] - from.pos[1],
             to.pos[2] - from.pos[2]
         );
-        var travel = rollTravel(node.axis, delta, fromRot);
+        var local = delta.applyQuaternion(fromRot.clone().invert());
+        var travel = local.dot(roll);
 
         /* Clamp implausible segments to zero travel, so a teleport or chunk-load pop
          * does not spin the wheels hundreds of revolutions. */
@@ -621,11 +683,7 @@
         if (Math.abs(travel) > MAX_PLAUSIBLE_BLOCKS_PER_SECOND * elapsedS) {
             return 0;
         }
-
-        if (node.kind !== KIND_SPIN) {
-            return travel;
-        }
-        return node.radius > 0 ? travel / node.radius : 0;
+        return travel;
     }
 
     // -----------------------------------------------------------------------------
