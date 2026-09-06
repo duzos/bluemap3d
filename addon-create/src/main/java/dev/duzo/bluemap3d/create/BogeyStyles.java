@@ -108,21 +108,31 @@ final class BogeyStyles {
     // 6.5 (in the model's 0..16 space) Create's own small bogey wheel already uses, so
     // WHEEL_RADIUS_SMALL is reused rather than redeclared.
     //
-    // The z offsets below were read off decompiled bytecode constants, not measured by eye
-    // against a running server. Two of the eleven (the eyes marked with an explicit array
-    // rather than a symmetric run) use Iterate.positiveAndNegative internally rather than a
-    // literal start, and the four- and five-wheel rows extend the three-wheel row's start
-    // by the same 1.5 step even though that does not come out symmetric about the frame's
-    // centre - which is exactly the kind of number this table cannot get from bytecode
-    // alone. Expect a correction pass once each is checked against a live render, the same
-    // empirical tuning BOGEY_DROP itself needed.
+    // The z offsets below were read off decompiled bytecode constants (javap against the
+    // eleven standard/medium/*Display classes in the jar), not measured by eye against a
+    // running server. Nine of the eleven use a literal per-wheel translate that matches this
+    // file's own run(); medium_standard's two wheels and medium_single_wheel's one wheel are
+    // the exceptions noted below.
 
     private static final ResourceLocation MEDIUM_SHARED_WHEELS = railways("block/bogey/medium/shared/wheels");
 
     /** The wheel's spin pivot, in the model's own 0..16 space: 0.8125 blocks up, times 16. */
     private static final float MEDIUM_WHEEL_PIVOT_Y = 0.8125f * 16f;
 
-    private record MediumStyle(ResourceLocation frame, float[] wheelZOffsets) {
+    /** Shared by every medium style except medium_single_wheel: net lift 0, see wheelHeight(). */
+    private static final float MEDIUM_WHEEL_HEIGHT = ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT;
+
+    // medium_single_wheel's own update() is not the shared double-translate pattern above: it
+    // translates to 0.75 (not 0.8125) before rotateX and only -0.8125 after, so the pivot and
+    // the net lift both differ from every other medium row - net lift 0.75 - 0.8125 = -0.0625,
+    // one pixel below the shared MEDIUM_WHEEL_HEIGHT.
+    private static final float SINGLE_WHEEL_PIVOT_Y = 0.75f * 16f;
+    private static final float SINGLE_WHEEL_HEIGHT = MEDIUM_WHEEL_HEIGHT - 0.0625f;
+
+    private record MediumStyle(ResourceLocation frame, float[] wheelZOffsets, float wheelPivotY, float wheelHeight) {
+        private static MediumStyle of(ResourceLocation frame, float[] wheelZOffsets) {
+            return new MediumStyle(frame, wheelZOffsets, MEDIUM_WHEEL_PIVOT_Y, MEDIUM_WHEEL_HEIGHT);
+        }
     }
 
     /** A run of {@code count} wheels 1.5 blocks apart, starting at {@code start}. */
@@ -141,27 +151,28 @@ final class BogeyStyles {
 
     private static final Map<String, MediumStyle> MEDIUM_STYLES = Map.ofEntries(
             Map.entry("railways:medium_single_wheel", new MediumStyle(
-                    railways("block/bogey/medium/single_wheel/frame"), new float[]{0f})),
-            Map.entry("railways:medium_standard", new MediumStyle(
-                    railways("block/bogey/medium/standard/frame"), new float[]{-0.8125f, 0.8125f})),
-            Map.entry("railways:medium_2_0_2_trailing", new MediumStyle(
+                    railways("block/bogey/medium/single_wheel/frame"), new float[]{0f},
+                    SINGLE_WHEEL_PIVOT_Y, SINGLE_WHEEL_HEIGHT)),
+            Map.entry("railways:medium_standard", MediumStyle.of(
+                    railways("block/bogey/medium/standard/frame"), new float[]{-1.0f, 1.0f})),
+            Map.entry("railways:medium_2_0_2_trailing", MediumStyle.of(
                     railways("block/bogey/medium/2_0_2_trailing/frame"), new float[]{0f})),
-            Map.entry("railways:medium_4_0_4_trailing", new MediumStyle(
+            Map.entry("railways:medium_4_0_4_trailing", MediumStyle.of(
                     railways("block/bogey/medium/4_0_4_trailing/frame"), new float[]{-0.75f, 0.75f})),
-            Map.entry("railways:medium_triple_wheel", new MediumStyle(
+            Map.entry("railways:medium_triple_wheel", MediumStyle.of(
                     railways("block/bogey/medium/triple_wheel/frame"), run(3, -1.5f))),
-            Map.entry("railways:medium_6_0_6_trailing", new MediumStyle(
+            Map.entry("railways:medium_6_0_6_trailing", MediumStyle.of(
                     railways("block/bogey/medium/6_0_6_trailing/frame"), run(3, -1.5f))),
-            Map.entry("railways:medium_6_0_6_tender", new MediumStyle(
+            Map.entry("railways:medium_6_0_6_tender", MediumStyle.of(
                     railways("block/bogey/medium/6_0_6_tender/frame"), run(3, -1.5f))),
-            Map.entry("railways:medium_quadruple_wheel", new MediumStyle(
-                    railways("block/bogey/medium/quadruple_wheel/frame"), run(4, -0.75f))),
-            Map.entry("railways:medium_8_0_8_tender", new MediumStyle(
-                    railways("block/bogey/medium/8_0_8_tender/frame"), run(4, -0.75f))),
-            Map.entry("railways:medium_quintuple_wheel", new MediumStyle(
-                    railways("block/bogey/medium/quintuple_wheel/frame"), run(5, -1.5f))),
-            Map.entry("railways:medium_10_0_10_tender", new MediumStyle(
-                    railways("block/bogey/medium/10_0_10_tender/frame"), run(5, -1.5f)))
+            Map.entry("railways:medium_quadruple_wheel", MediumStyle.of(
+                    railways("block/bogey/medium/quadruple_wheel/frame"), run(4, -2.25f))),
+            Map.entry("railways:medium_8_0_8_tender", MediumStyle.of(
+                    railways("block/bogey/medium/8_0_8_tender/frame"), run(4, -2.25f))),
+            Map.entry("railways:medium_quintuple_wheel", MediumStyle.of(
+                    railways("block/bogey/medium/quintuple_wheel/frame"), run(5, -3.0f))),
+            Map.entry("railways:medium_10_0_10_tender", MediumStyle.of(
+                    railways("block/bogey/medium/10_0_10_tender/frame"), run(5, -3.0f)))
     );
 
     // -----------------------------------------------------------------------------
@@ -229,8 +240,9 @@ final class BogeyStyles {
     // Block-wise these six are a mixed bag - CRBogeyStyles registers freight, archbar
     // and y25 on railways:large_platform_doubleaxle_bogey and the other three on plain
     // railways:doubleaxle_bogey, an inconsistency in the mod's own registration rather
-    // than a typo here. Both blocks are recognised in ContraptionProvider's gate; the
-    // style id alone is what picks the row below.
+    // than a typo here. ContraptionProvider dispatches on the style id alone and keeps no
+    // list of the blocks these styles can sit on, so neither block needs a mention here for
+    // the row below to be picked.
 
     private static final ResourceLocation LONG_SHAFTED_WHEELS = railways("block/bogey/wheels/long_shaft_wheels");
 
@@ -407,12 +419,12 @@ final class BogeyStyles {
                 ContraptionProvider.bogeyTransform(axis,
                         ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, 0f)));
         for (float z : style.wheelZOffsets()) {
-            // Every medium wheel is a lowered-pivot one - translate(0, 0.8125, z),
-            // rotateX(a), translate(0, -0.8125, 0) - so its net lift is zero.
-            Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
-                    ContraptionProvider.BOGEY_DROP + UNLIFTED_HEIGHT, z);
+            // Every medium wheel is a lowered-pivot one - translate(0, pivotY, z), rotateX(a),
+            // translate(0, -0.8125, 0) - so its net lift is the pivot minus 0.8125, zero for
+            // every style except medium_single_wheel (see SINGLE_WHEEL_HEIGHT above).
+            Matrix4f transform = ContraptionProvider.bogeyTransform(axis, style.wheelHeight(), z);
             ModelAttachment.Spin spin = new ModelAttachment.Spin(
-                    new Vector3f(0f, MEDIUM_WHEEL_PIVOT_Y, 0f),
+                    new Vector3f(0f, style.wheelPivotY(), 0f),
                     ContraptionProvider.WHEEL_AXIS,
                     ContraptionProvider.WHEEL_RADIUS_SMALL);
             out.add(new ModelAttachment(pos, MEDIUM_SHARED_WHEELS, Map.of(), transform, spin));

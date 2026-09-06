@@ -171,7 +171,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * viewers keep the mesh they already have. That cost a whole debugging session: the
      * fix was correct on disk and the page kept showing the old geometry.
      */
-    private static final long GEOMETRY_REVISION = 1L;
+    private static final long GEOMETRY_REVISION = 2L;
 
     // Create's own two bogey BLOCKS. These are block ids, not block entity type ids, and
     // the difference has already cost one debugging session: Create registers a single
