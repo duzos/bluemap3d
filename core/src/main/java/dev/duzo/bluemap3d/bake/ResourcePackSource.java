@@ -377,9 +377,9 @@ public final class ResourcePackSource implements BlockModelSource {
      */
     private void appendModel(List<ModelQuad> out, String modelRef, int rotX, int rotY,
                              Map<String, String> overrides, BlockState state) {
-        JsonObject entry = modelJson(modelRef);
-        if (entry != null && isObjLoader(entry)) {
-            appendObjModel(out, modelRef, entry, overrides);
+        JsonObject objStub = findObjStub(modelRef);
+        if (objStub != null) {
+            appendObjModel(out, modelRef, objStub, overrides);
             return;
         }
         JsonObject model = resolveModel(modelRef, overrides);
@@ -460,12 +460,6 @@ public final class ResourcePackSource implements BlockModelSource {
         }
     }
 
-    /** The single model json a ref names, unresolved - no parent walk, no elements search. */
-    private JsonObject modelJson(String modelRef) {
-        ResourceLocation loc = parse(modelRef);
-        return loc == null ? null : json(modelJsonPath(loc));
-    }
-
     /**
      * The resource-pack path of a model's json file. A bare name with no namespaced
      * folder defaults to {@code block/}, since that is what every plain block-model
@@ -482,6 +476,48 @@ public final class ResourcePackSource implements BlockModelSource {
 
     private static boolean isObjLoader(JsonObject model) {
         return model.has("loader") && "neoforge:obj".equals(model.get("loader").getAsString());
+    }
+
+    /**
+     * The nearest model in {@code modelRef}'s parent chain that wraps an OBJ mesh, or
+     * {@code null} if the chain reaches ordinary {@code elements} geometry first (or has
+     * neither).
+     *
+     * <p>The chain has to be walked, not just the leaf inspected. A mod that reskins
+     * another mod's OBJ track, machine or decoration ships a leaf model that is nothing
+     * but {@code parent} plus a {@code textures} block - Steam 'n' Rails' 150-odd track
+     * materials are all exactly that on top of Create's {@code create:block/track/diag},
+     * {@code tie} and {@code segment_*}. Checking only the leaf finds no {@code loader}
+     * there, falls through to the elements path, finds no {@code elements} anywhere in
+     * the chain either, and hands the block to {@link MapColorSource} - so every one of
+     * those blocks and attachments draws as a flat grey lump instead of track.
+     *
+     * <p>Stops at the first {@code elements} it meets so that whichever kind of geometry
+     * is <em>nearer</em> the leaf wins, which is the same precedence a child overriding
+     * its parent's geometry has everywhere else. Textures are deliberately not read here:
+     * {@link #appendObjModel} resolves those from the original leaf, so the child's
+     * overrides still beat the parent's defaults.
+     */
+    private JsonObject findObjStub(String modelRef) {
+        String ref = modelRef;
+        for (int depth = 0; depth < MAX_PARENT_DEPTH && ref != null; depth++) {
+            ResourceLocation loc = parse(ref);
+            if (loc == null) {
+                return null;
+            }
+            JsonObject model = json(modelJsonPath(loc));
+            if (model == null) {
+                return null;
+            }
+            if (isObjLoader(model) && model.has("model")) {
+                return model;
+            }
+            if (model.has("elements")) {
+                return null;
+            }
+            ref = model.has("parent") ? model.get("parent").getAsString() : null;
+        }
+        return null;
     }
 
     /**
