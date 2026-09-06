@@ -34,6 +34,7 @@ import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -370,6 +371,27 @@ public final class ContraptionProvider implements SceneObjectProvider {
     private static final String STANDARD_BOGEY_STYLE = "create:standard";
 
     /**
+     * {@code Contraption.updateTags}, reached by reflection once at class load.
+     *
+     * <p>A contraption keeps a block entity's data in two places, and only one of them can
+     * be relied on. {@code Contraption.addBlock} stores the full saved tag on the
+     * {@code StructureBlockInfo} <em>and</em> {@code BlockEntity.getUpdateTag()} in this
+     * separate map - but a carriage's anchor bogey, the one at local {@code (0,0,0)}, comes
+     * out with a null {@code nbt()} and an update tag all the same, confirmed by reading a
+     * live carriage's own serialised {@code Blocks.BlockList} over rcon. So reading only
+     * {@code nbt()} meant one of every carriage's two bogeys could never report a style at
+     * all, and fell back to {@link #STANDARD_BOGEY_STYLE}.
+     *
+     * <p>Reflection because the field is {@code protected} with no accessor, and neither an
+     * access transformer nor a subclass reaches it: Create is a {@code compileOnly}
+     * dependency resolved from a published jar, and Java's {@code protected} only grants
+     * access through a reference of the accessing subclass's own type. A one-time lookup
+     * costs nothing per publish, and a failure degrades to the old behaviour rather than
+     * throwing mid-collect.
+     */
+    private static final Field UPDATE_TAGS_FIELD = updateTagsField();
+
+    /**
      * Entity classes whose rotation could not be sampled, so it is reported once each
      * rather than every interval for as long as the contraption exists.
      */
@@ -431,7 +453,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // The window between the entity existing and its contraption being attached.
             return null;
         }
-        CarriageGeometry geometry = buildGeometry(contraption.getBlocks(), maxBlocks, entity.blockPosition());
+        CarriageGeometry geometry = buildGeometry(contraption, maxBlocks, entity.blockPosition());
         if (geometry == null) {
             return null;
         }
@@ -535,7 +557,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
                                   CarriageCache entry, int maxBlocks, UUID trainId, int index) {
         CarriageContraptionEntity live = dimensional.entity == null ? null : dimensional.entity.get();
         if (live != null && !live.isRemoved() && live.getContraption() != null) {
-            CarriageGeometry geometry = buildGeometry(live.getContraption().getBlocks(), maxBlocks,
+            CarriageGeometry geometry = buildGeometry(live.getContraption(), maxBlocks,
                     "train " + trainId + " carriage " + index);
             if (geometry != null) {
                 entry.volume = geometry.volume();
@@ -561,7 +583,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
         }
         CompoundTag contraptionTag = entityTag.getCompound("Contraption");
         Contraption contraption = Contraption.fromNBT(level, contraptionTag, false);
-        CarriageGeometry geometry = buildGeometry(contraption.getBlocks(), maxBlocks,
+        CarriageGeometry geometry = buildGeometry(contraption, maxBlocks,
                 "train " + trainId + " carriage " + index);
         if (geometry != null) {
             entry.volume = geometry.volume();
@@ -623,14 +645,19 @@ public final class ContraptionProvider implements SceneObjectProvider {
     }
 
     /**
-     * Builds one contraption's block volume, version and bogey attachments out of its raw
-     * block map, or returns {@code null} if there is nothing to draw or too much of it.
+     * Builds one contraption's block volume, version and bogey attachments, or returns
+     * {@code null} if there is nothing to draw or too much of it.
+     *
+     * <p>Takes the contraption rather than just its block map because a bogey's style is not
+     * in the block map at all for every bogey - see {@link #UPDATE_TAGS_FIELD}.
      *
      * <p>Shared by the live entity path and both branches of the train path, so a carriage
-     * meshes identically regardless of which one supplied its blocks.
+     * meshes identically regardless of which one supplied its blocks. Both paths reach the
+     * same two nbt sources: {@code Contraption.readNBT} refills {@code updateTags} from the
+     * persisted {@code UpdateTag} exactly as assembly filled it from the live block entity.
      */
-    private static CarriageGeometry buildGeometry(Map<BlockPos, StructureTemplate.StructureBlockInfo> source,
-                                                   int maxBlocks, Object logLabel) {
+    private static CarriageGeometry buildGeometry(Contraption contraption, int maxBlocks, Object logLabel) {
+        Map<BlockPos, StructureTemplate.StructureBlockInfo> source = contraption.getBlocks();
         if (source == null || source.isEmpty()) {
             return null;
         }
@@ -657,6 +684,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
 
         Map<BlockPos, BlockState> blocks = new HashMap<>(source.size());
         List<ModelAttachment> attachments = new ArrayList<>();
+        Map<BlockPos, CompoundTag> updateTags = updateTagsOf(contraption);
         long version = FNV_OFFSET;
         for (Map.Entry<BlockPos, StructureTemplate.StructureBlockInfo> entry : source.entrySet()) {
             BlockPos pos = entry.getKey();
@@ -673,8 +701,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
             // an attachment it can change without the state changing - a wrenched bogey
             // keeps its block and swaps its style, and without this the carriage would
             // keep whatever geometry it was first baked with.
-            version ^= mix(mix(FNV_OFFSET, pos.asLong()), bogeyStyleOf(entry.getValue()).hashCode());
-            addBogeyAttachments(pos, entry.getValue(), attachments);
+            String style = bogeyStyleOf(updateTags.get(pos), entry.getValue());
+            version ^= mix(mix(FNV_OFFSET, pos.asLong()), style.hashCode());
+            addBogeyAttachments(pos, entry.getValue(), style, attachments);
         }
         version = mix(version, source.size());
 
@@ -782,21 +811,60 @@ public final class ContraptionProvider implements SceneObjectProvider {
     }
 
     /**
-     * The bogey style at this block, or Create's standard style when it says nothing.
+     * The bogey style at this block, or Create's standard style when neither source says.
      *
      * <p>Create keeps a bogey's style in its block entity rather than its block state, as
      * a resource location under {@code BogeyData/BogeyStyle}, and a contraption carries
-     * that nbt along with the block. Reading it is the only way to tell a standard bogey
-     * from one belonging to another style or another mod.
+     * that data along with the block in two separate places - see {@link #UPDATE_TAGS_FIELD}
+     * for why the update tag is asked first and the block info's own nbt only second. Both
+     * are snapshots taken at assembly from the same block entity, so on a contraption whose
+     * nbt has not been hand-edited they agree; where they cannot agree is that the anchor
+     * bogey has no block info nbt at all.
      */
-    private static String bogeyStyleOf(StructureTemplate.StructureBlockInfo info) {
-        CompoundTag nbt = info.nbt();
-        if (nbt == null) {
-            return STANDARD_BOGEY_STYLE;
+    private static String bogeyStyleOf(CompoundTag updateTag, StructureTemplate.StructureBlockInfo info) {
+        String style = bogeyStyleIn(updateTag);
+        if (style == null) {
+            style = bogeyStyleIn(info.nbt());
         }
-        CompoundTag data = nbt.getCompound("BogeyData");
-        String style = data.getString("BogeyStyle");
-        return style.isEmpty() ? STANDARD_BOGEY_STYLE : style;
+        return style == null ? STANDARD_BOGEY_STYLE : style;
+    }
+
+    /** The style named by one block entity tag, or {@code null} if it names none. */
+    private static String bogeyStyleIn(CompoundTag nbt) {
+        if (nbt == null) {
+            return null;
+        }
+        String style = nbt.getCompound("BogeyData").getString("BogeyStyle");
+        return style.isEmpty() ? null : style;
+    }
+
+    /** Looks up {@link #UPDATE_TAGS_FIELD} once, or {@code null} if Create has moved it. */
+    private static Field updateTagsField() {
+        try {
+            Field field = Contraption.class.getDeclaredField("updateTags");
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            LOGGER.warn("Could not reach Contraption.updateTags; a carriage's anchor bogey will "
+                    + "draw as {} whatever style it really carries. {}", STANDARD_BOGEY_STYLE, e.toString());
+            return null;
+        }
+    }
+
+    /** One contraption's block entity update tags, or an empty map if they cannot be read. */
+    @SuppressWarnings("unchecked")
+    private static Map<BlockPos, CompoundTag> updateTagsOf(Contraption contraption) {
+        if (UPDATE_TAGS_FIELD == null) {
+            return Map.of();
+        }
+        try {
+            Map<BlockPos, CompoundTag> tags =
+                    (Map<BlockPos, CompoundTag>) UPDATE_TAGS_FIELD.get(contraption);
+            return tags == null ? Map.of() : tags;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Reported once at lookup time already; a per-publish warn here would spam.
+            return Map.of();
+        }
     }
 
     /**
@@ -818,7 +886,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * style it does not know either.
      */
     private static void addBogeyAttachments(BlockPos pos, StructureTemplate.StructureBlockInfo info,
-                                            List<ModelAttachment> out) {
+                                            String style, List<ModelAttachment> out) {
         BlockState state = info.state();
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         boolean small = SMALL_BOGEY.equals(id);
@@ -837,7 +905,6 @@ public final class ContraptionProvider implements SceneObjectProvider {
             return;
         }
         Direction.Axis axis = state.getValue(BlockStateProperties.HORIZONTAL_AXIS);
-        String style = bogeyStyleOf(info);
 
         if (!STANDARD_BOGEY_STYLE.equals(style)) {
             // Not Create's own style, so its frame and wheels are either BogeyStyles' job
