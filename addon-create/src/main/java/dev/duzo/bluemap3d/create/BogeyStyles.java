@@ -118,6 +118,69 @@ final class BogeyStyles {
                     railways("block/bogey/medium/10_0_10_tender/frame"), run(5, -1.5f)))
     );
 
+    // -----------------------------------------------------------------------------
+    // Display family (double axle)
+    // -----------------------------------------------------------------------------
+    //
+    // Six style ids - archbar, blomberg, freight, modern, passenger, y25 - and one
+    // shared code path. Every one of the six `standard/double_axle/*Display` classes in
+    // the jar is a single-line constructor: `super(provider, FRAME, WHEELS, lowerPivot)`,
+    // with no `update` override of its own - the frame, wheel count (always two, one
+    // axle each side) and wheel maths live once in `double_axle/base/
+    // DoubleAxleBogeyDisplay`, and three of the six (archbar, blomberg, y25) go through
+    // `CrossShaftDoubleAxleBogeyDisplay`, which adds nothing but two cosmetic
+    // create:shaft stubs - skipped here for the same reason the medium family's own
+    // shaft stubs are.
+    //
+    // The base's wheel maths, read the same way as ContraptionProvider's own bogey
+    // comment block already reads Create's: `translate(0, 0.75, z)`, `rotateX(a)`,
+    // `translateY(lowerPivot ? -0.75 : 0)`. z is +-1 block (Iterate.positiveAndNegative),
+    // the same SMALL_AXLE_SPACING Create's own small bogey uses, and the trailing
+    // translateY is exactly the "lowerPivot" pattern the medium family's own comment
+    // above already covers: it is a Spin pivot, not a separate static offset, so
+    // lowerPivot true puts the pivot at model y 0.75 (times 16) and lowerPivot false
+    // leaves it at the wheel model's own origin - the same origin Create's own
+    // SMALL_BOGEY_WHEELS pivot already uses, which is exactly the wheel model archbar
+    // and blomberg (lowerPivot false) draw. The wheel radius is the same
+    // WHEEL_RADIUS_SMALL every standard-size Steam 'n' Rails bogey shares.
+    //
+    // Constructor arguments read by javap, one row per style:
+    //   archbar    ARCHBAR_FRAME,    SMALL_BOGEY_WHEELS,  lowerPivot=false
+    //   blomberg   BLOMBERG_FRAME,   SMALL_BOGEY_WHEELS,  lowerPivot=false
+    //   freight    FREIGHT_FRAME,    LONG_SHAFTED_WHEELS, lowerPivot=true
+    //   modern     MODERN_FRAME,     LONG_SHAFTED_WHEELS, lowerPivot=true
+    //   passenger  PASSENGER_FRAME,  LONG_SHAFTED_WHEELS, lowerPivot=true
+    //   y25        Y25_FRAME,        LONG_SHAFTED_WHEELS, lowerPivot=true
+    //
+    // Block-wise these six are a mixed bag - CRBogeyStyles registers freight, archbar
+    // and y25 on railways:large_platform_doubleaxle_bogey and the other three on plain
+    // railways:doubleaxle_bogey, an inconsistency in the mod's own registration rather
+    // than a typo here. Both blocks are recognised in ContraptionProvider's gate; the
+    // style id alone is what picks the row below.
+
+    private static final ResourceLocation LONG_SHAFTED_WHEELS = railways("block/bogey/wheels/long_shaft_wheels");
+
+    /** The lowered wheel pivot, in the model's own 0..16 space: 0.75 blocks up, times 16. */
+    private static final float DOUBLE_AXLE_WHEEL_PIVOT_Y = 0.75f * 16f;
+
+    private record DoubleAxleStyle(ResourceLocation frame, ResourceLocation wheels, boolean lowerPivot) {
+    }
+
+    private static final Map<String, DoubleAxleStyle> DOUBLE_AXLE_STYLES = Map.of(
+            "railways:archbar", new DoubleAxleStyle(
+                    railways("block/bogey/archbar/frame"), ContraptionProvider.SMALL_BOGEY_WHEEL_MODEL, false),
+            "railways:blomberg", new DoubleAxleStyle(
+                    railways("block/bogey/blomberg/frame"), ContraptionProvider.SMALL_BOGEY_WHEEL_MODEL, false),
+            "railways:freight", new DoubleAxleStyle(
+                    railways("block/bogey/freight/frame"), LONG_SHAFTED_WHEELS, true),
+            "railways:modern", new DoubleAxleStyle(
+                    railways("block/bogey/modern/frame"), LONG_SHAFTED_WHEELS, true),
+            "railways:passenger", new DoubleAxleStyle(
+                    railways("block/bogey/passenger/frame"), LONG_SHAFTED_WHEELS, true),
+            "railways:y25", new DoubleAxleStyle(
+                    railways("block/bogey/y25/frame"), LONG_SHAFTED_WHEELS, true)
+    );
+
     /**
      * The parts for one bogey style at {@code pos}, or an empty list for any style this
      * table does not (yet) recognise - the same draw-nothing fallback
@@ -128,6 +191,10 @@ final class BogeyStyles {
         MediumStyle medium = MEDIUM_STYLES.get(styleId);
         if (medium != null) {
             return mediumAttachments(pos, axis, medium);
+        }
+        DoubleAxleStyle doubleAxle = DOUBLE_AXLE_STYLES.get(styleId);
+        if (doubleAxle != null) {
+            return doubleAxleAttachments(pos, axis, doubleAxle);
         }
         return List.of();
     }
@@ -143,6 +210,24 @@ final class BogeyStyles {
                     ContraptionProvider.WHEEL_AXIS,
                     ContraptionProvider.WHEEL_RADIUS_SMALL);
             out.add(new ModelAttachment(pos, MEDIUM_SHARED_WHEELS, Map.of(), transform, spin));
+        }
+        return out;
+    }
+
+    private static List<ModelAttachment> doubleAxleAttachments(BlockPos pos, Direction.Axis axis,
+                                                                DoubleAxleStyle style) {
+        List<ModelAttachment> out = new ArrayList<>();
+        out.add(new ModelAttachment(pos, style.frame(), Map.of(),
+                ContraptionProvider.bogeyTransform(axis, ContraptionProvider.BOGEY_DROP, 0f)));
+        Vector3f pivot = style.lowerPivot()
+                ? new Vector3f(0f, DOUBLE_AXLE_WHEEL_PIVOT_Y, 0f)
+                : ContraptionProvider.WHEEL_PIVOT;
+        for (float z : new float[]{ContraptionProvider.SMALL_AXLE_SPACING, -ContraptionProvider.SMALL_AXLE_SPACING}) {
+            Matrix4f transform = ContraptionProvider.bogeyTransform(axis,
+                    ContraptionProvider.BOGEY_DROP + ContraptionProvider.SMALL_AXLE_HEIGHT, z);
+            ModelAttachment.Spin spin = new ModelAttachment.Spin(
+                    pivot, ContraptionProvider.WHEEL_AXIS, ContraptionProvider.WHEEL_RADIUS_SMALL);
+            out.add(new ModelAttachment(pos, style.wheels(), Map.of(), transform, spin));
         }
         return out;
     }
