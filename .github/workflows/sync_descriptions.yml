@@ -1,0 +1,100 @@
+name: Sync project descriptions
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print what would be sent, publish nothing'
+        type: boolean
+        default: true
+  push:
+    branches: [master]
+    paths:
+      - core/README.md
+      - addon-create/README.md
+      - addon-sable/README.md
+      - addon-turtles/README.md
+
+jobs:
+  modrinth:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy]')
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per Modrinth project. Add a module here and it is done, nothing
+        # else in this workflow needs to change.
+        project:
+          - id: 6qumn46W
+            dir: core
+          - id: rxpPQGD1
+            dir: addon-create
+          - id: owyPt6vs
+            dir: addon-sable
+          - id: uWqMFrYC
+            dir: addon-turtles
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.project.dir }} body
+        env:
+          MODULE_DIR: ${{ matrix.project.dir }}
+        run: |
+          set -euo pipefail
+          # Modrinth renders a description standalone, so a repo-relative image (which
+          # resolves fine on GitHub) is broken there. Rewrite every src="..." and every
+          # markdown image target to an absolute raw.githubusercontent.com URL: "../"
+          # resolves against the repo root (that is how core/README.md reaches the
+          # shared top-level logo), a bare path resolves against this module's own
+          # directory (every add-on keeps its screenshots next to its own README).
+          python3 - "$MODULE_DIR/README.md" "$MODULE_DIR" > body.md <<'PYEOF'
+          import re
+          import sys
+
+          readme, module_dir = sys.argv[1], sys.argv[2]
+          raw_base = "https://raw.githubusercontent.com/duzos/bluemap3d/master"
+
+          with open(readme, encoding="utf-8") as f:
+              text = f.read()
+
+          def resolve(path):
+              path = path.strip()
+              if path.startswith(("http://", "https://", "//")):
+                  return path
+              if path.startswith("../"):
+                  return raw_base + "/" + path[3:]
+              return raw_base + "/" + module_dir + "/" + path.lstrip("./")
+
+          text = re.sub(r'src="([^"]+)"', lambda m: 'src="%s"' % resolve(m.group(1)), text)
+          text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', lambda m: '![%s](%s)' % (m.group(1), resolve(m.group(2))), text)
+
+          # Refuse to hand back a body that still points at a relative path: a failed
+          # workflow run beats silently publishing four pages with broken screenshots.
+          if re.search(r'src="(?!https?://)', text) or re.search(r'\]\((?!https?://)', text):
+              sys.exit("body still has a relative image path after rewriting, refusing to publish")
+
+          sys.stdout.write(text)
+          PYEOF
+
+      - name: Send to Modrinth (${{ matrix.project.id }})
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          PROJECT_ID: ${{ matrix.project.id }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          jq -Rs '{body: .}' body.md > body.json
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run for project $PROJECT_ID, publishing nothing. Body that would be sent:"
+            cat body.md
+            exit 0
+          fi
+
+          curl --fail-with-body -sS \
+            -X PATCH "https://api.modrinth.com/v2/project/$PROJECT_ID" \
+            -H "Authorization: $MODRINTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @body.json
