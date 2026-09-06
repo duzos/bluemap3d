@@ -52,25 +52,6 @@ Put it in `mods/` next to [BlueMap](https://modrinth.com/mod/bluemap), then add 
 | `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have |
 | `maxAttachmentsPerObject` | `4096` | Skips meshing an object with more attachments than this |
 
-## Questions
-
-**Nothing is on my map.**
-Install an add-on. This is just the library.
-
-**Do players need it?**
-No, and it will not do anything for them if they install it.
-
-**Some blocks are grey lumps.**
-Those blocks are drawn in code by the mod that adds them, so there is no model file to read.
-Turn on `shapeFallback`, or point `sources` at a resource pack that has models for them.
-
-**Everything is flat colours.**
-BlueMap has not downloaded the vanilla client jar yet, which is where textures come from.
-Accept the download in BlueMap `core.conf` and let it re-render.
-
-**Versions?**
-1.21.1, NeoForge, BlueMap 5.x.
-
 ## Making an add-on
 
 Implement `SceneObjectProvider` and register it. Anything with blocks and a position can be

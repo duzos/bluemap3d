@@ -43,29 +43,6 @@ Put BlueMap3D, BlueMap: Aeronautics and [Sable](https://modrinth.com/mod/sable) 
 next to [BlueMap](https://modrinth.com/mod/bluemap). If you run Create: Aeronautics you
 already have Sable. Nothing to configure.
 
-## Questions
-
-**Do I need Create: Aeronautics?**
-No, only Sable. Aeronautics is just what most people use Sable for.
-
-**There is a flat copy of my ship where I built it.**
-That one is Sable, not this. When a vehicle assembles its blocks leave the world, but the
-map copy of that chunk still has them and never gets told to redraw. Break the vehicle back
-into the world and the map catches up in a few seconds.
-
-**Does a big fleet lag the server?**
-No. A vehicle is only redrawn when its blocks change, never when it moves.
-
-**My vehicle is not on the map.**
-Check the area is loaded. Sable only runs physics for a loaded sub-level, so if it is not
-loaded it is not moving either.
-
-**A huge ship is missing.**
-Raise `maxBlocksPerObject` in `config/bluemap3d-server.toml`. Defaults to 20000.
-
-**Versions?**
-1.21.1, NeoForge, Sable 2.x.
-
 ## Links
 
 - [Sable](https://modrinth.com/mod/sable)

@@ -32,7 +32,7 @@ Also shows:
 - **Windmills and bearings** turning on their real axis
 - **Gantry carriages** sliding along the shaft
 - **Pistons and pulleys**, including rope and elevator pulleys
-- **[Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails) bogeys**, drawn with their own
+- **[Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1) bogeys**, drawn with their own
   wheels and frames instead of Create's, if you have it installed
 
 Anything Create moves as a contraption gets moved on the map too.
@@ -50,44 +50,10 @@ bearing caps (`bearingCaps`, `maxBearingCaps`, `maxBearingCacheEntries`), statio
 (`stationFlags`, `maxStationFlags`) and a verbose logging switch (`verboseTrackLogging`).
 Most servers will not need to touch it.
 
-## Fast windmills look weird
-
-A fast bearing can look like it is spinning slowly backwards, like a wagon wheel in a film.
-The map only samples positions twice a second and the sails turn faster than that.
-
-Set `publishIntervalTicks` to `4` in `config/bluemap3d-server.toml` if it bothers you. Costs
-a bit of bandwidth. Trains do not need it.
-
-## Questions
-
-**Do trains show when nobody is near?**
-Only in loaded chunks. Create keeps simulating the train, but the map cannot see it, so it
-disappears and comes back. Chunk loaders along the line sort that.
-
-**Do curved tracks show?**
-Yes. Create draws the curve between two track pieces rather than placing blocks there, so
-this addon walks the same bezier itself and draws it as real geometry. Straight, diagonal,
-ascending and crossing track all draw too.
-
-**Chests and display boards on my train look wrong.**
-They get drawn as their block shape, without the lid or the text. Contraptions have a lot of
-these so it is the most obvious gap.
-
-**Do Steam 'n' Rails trains show right?**
-Mostly. Its bogey styles draw with their own wheels and frames instead of Create's; a handful
-of its more unusual bogeys, and its monorail track, still draw a bit generic instead of
-exactly right.
-
-**Will a big railway lag the server?**
-No. A carriage is drawn once and then only sent a position.
-
-**Versions?**
-1.21.1, NeoForge, Create 6.
-
 ## Links
 
 - [Create](https://modrinth.com/mod/create)
-- [Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails)
+- [Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1)
 - [BlueMap](https://modrinth.com/mod/bluemap)
 - [BlueMap3D](https://modrinth.com/mod/bluemap3d)
 - [Bug reports](https://github.com/duzos/bluemap3d/issues)

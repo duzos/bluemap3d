@@ -61,24 +61,6 @@ Set `tileReloadMinSeconds = 5` in `config/bluemap3d-server.toml` and anyone with
 open sees mined ground update without refreshing. That is most of the fun of watching a
 quarry.
 
-## Questions
-
-**Which turtles show?**
-Loaded ones. A turtle in an unloaded chunk is not running anyway.
-
-**My new turtle has no label.**
-A turtle that has never been switched on has no computer id yet, so it gets tracked by
-position instead. It cannot move until it boots, so that is fine.
-
-**Do pocket computers or monitors show?**
-No, just turtles.
-
-**Does a big fleet lag the server?**
-No. Each turtle is drawn once and then only sent a position.
-
-**Versions?**
-1.21.1, NeoForge, CC:Tweaked 1.120+.
-
 ## Links
 
 - [CC:Tweaked](https://modrinth.com/mod/cc-tweaked)

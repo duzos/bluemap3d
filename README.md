@@ -31,7 +31,7 @@ BlueMap3D on its own does nothing. Install at least one of these:
 
 | Add-on | Shows | Needs |
 | --- | --- | --- |
-| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions, plus bogey styles from [Steam 'n' Rails](https://modrinth.com/mod/steam-n-rails) | [Create](https://modrinth.com/mod/create) |
+| **[BlueMap: Create](https://modrinth.com/mod/rxpPQGD1)** | Trains, windmills, bearings, gantries, pistons, minecart contraptions, plus bogey styles from [Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1) | [Create](https://modrinth.com/mod/create) |
 | **[BlueMap: Aeronautics](https://modrinth.com/mod/owyPt6vs)** | Airships, planes, cars | [Sable](https://modrinth.com/mod/sable) |
 | **[Bluemap: Computer Craft](https://modrinth.com/mod/uWqMFrYC)** | Turtles, with their labels and tools | [CC:Tweaked](https://modrinth.com/mod/cc-tweaked) |
 
@@ -59,25 +59,6 @@ add-ons you want, restart.
 | `sources` | `[]` | Extra resource packs to read models from |
 | `shapeFallback` | `true` | Blocks with no model get drawn as their outline shape instead of a cube |
 | `maxSpinNodesPerObject` | `32` | How many spinning parts one object can have. Wheels, mainly |
-
-## Questions
-
-**Do players need to install it?**
-No. It is server side.
-
-**Does it lag the server?**
-Each object is drawn once, then it is only sent a position. A train running all day is
-cheap.
-
-**Does it change my existing map?**
-No, terrain renders the same as before.
-
-**Versions?**
-1.21.1, NeoForge, BlueMap 5.x.
-
-**Nothing is showing up.**
-Make sure the mod it needs is installed and the chunks are loaded. Things in unloaded chunks
-are not tracked.
 
 ## Links
 
