@@ -1,10 +1,8 @@
 name: Automated dev builds
 
 on:
-  # Push only. The upload action supports one mode, "commit", which reads the
-  # pushed commits to build its message, so a manual dispatch has nothing to read
-  # and dies with "Cannot read properties of undefined". A button that always
-  # fails is worse than no button.
+  # Push only. The message is built from the pushed commit, so a manual
+  # dispatch has nothing to read.
   push:
     branches:
       - master
@@ -13,42 +11,8 @@ on:
 
 jobs:
   devbuild:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
-        with:
-          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Build
-        run: ./gradlew build
-
-      - name: Publish artifacts
-        uses: drtheodor/discord-webhook-upload-action@v0.2
-        with:
-          url: ${{ secrets.DEV_BUILDS }}
-          username: NEOFORGE builds
-          avatar: 'https://wiki.tf2classic.com/w/images/b/b3/Engineer_BLU.png'
-          message_commit: '> :sparkles: [${commitMessage}](<${commitUrl}>) by [${authorName}](<${authorUrl}>)'
-          message_header: |
-            <:new1:1253371736510959636><:new2:1253371805734015006> New `${{ github.repository }}` dev build `#${{ github.run_number }}`:
-          file: |
-            core/build/libs/*.jar
-            addon-turtles/build/libs/*.jar
-            addon-sable/build/libs/*.jar
-            addon-create/build/libs/*.jar
-            !**/*-sources.jar
-            !**/*-javadoc.jar
-            !dev-harness/**
+    uses: duzos/mod-ci/.github/workflows/devbuild.yml@v1
+    secrets: inherit
+    with:
+      targets: '[{"project":"core"},{"project":"addon-turtles"},{"project":"addon-sable"},{"project":"addon-create"}]'
+      java: '21'
