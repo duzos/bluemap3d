@@ -30,6 +30,9 @@ publishMods {
     file = tasks.named('jar', Jar).flatMap { it.archiveFile }
     changelog = providers.fileContents(project.layout.projectDirectory.file("CHANGELOG.md")).asText
     type = STABLE
+    // Driven by the shared publish workflow. When true nothing is uploaded and
+    // the release assets are written to the build directory instead.
+    dryRun = providers.environmentVariable("PUBLISH_DRY_RUN").map { it == "true" }.getOrElse(false)
     version = "${project.version}-${minecraft_version}"
     displayName = "Bluemap: Computer Craft ${project.version} (${minecraft_version} NeoForge)"
     modLoaders.add("neoforge")
