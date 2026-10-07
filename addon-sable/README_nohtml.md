@@ -30,6 +30,9 @@ This finds them and draws them where they actually are:
 - Turns around its centre of mass, which is what the physics uses, so a turn looks like a
   turn
 - Whatever you named it, shown on hover
+- Copycats in the material they are skinned in, if you also have
+  [BlueMap: Create](https://modrinth.com/mod/rxpPQGD1) installed. It is what knows how
+  to read them; without it a ship's copycats draw as plain blocks
 
 ## Install
 
