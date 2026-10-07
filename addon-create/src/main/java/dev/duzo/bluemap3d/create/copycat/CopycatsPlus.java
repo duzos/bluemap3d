@@ -1,18 +1,31 @@
 package dev.duzo.bluemap3d.create.copycat;
 
+import com.copycatsplus.copycats.content.copycat.cogwheel.CopycatCogWheelBlock;
+import com.copycatsplus.copycats.content.copycat.fluid_pipe.CopycatFluidPipeBlock;
+import com.copycatsplus.copycats.content.copycat.fluid_pipe.CopycatGlassFluidPipeBlock;
+import com.copycatsplus.copycats.content.copycat.shaft.CopycatShaftBlock;
+import com.copycatsplus.copycats.content.copycat.slope.CopycatSlopeBlock;
+import com.copycatsplus.copycats.content.copycat.slope_layer.CopycatSlopeLayerBlock;
+import com.copycatsplus.copycats.content.copycat.vertical_slope.CopycatVerticalSlopeBlock;
 import com.copycatsplus.copycats.foundation.copycat.ICopycatBlock;
 import com.copycatsplus.copycats.foundation.copycat.ICopycatBlockEntity;
 import com.copycatsplus.copycats.foundation.copycat.multistate.IMultiStateCopycatBlock;
 import com.copycatsplus.copycats.foundation.copycat.multistate.IMultiStateCopycatBlockEntity;
 import com.copycatsplus.copycats.foundation.copycat.multistate.MaterialItemStorage;
+import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.kinetics.base.RotatedPillarKineticBlock;
 import dev.duzo.bluemap3d.api.BlockAppearance;
+import dev.duzo.bluemap3d.api.ModelAttachment;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.Half;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -70,6 +83,70 @@ final class CopycatsPlus {
     }
 
     /**
+     * The appearance of a copycat whose shape is not boxes - a cogwheel, a shaft, a pipe or a
+     * slope - or {@code null} if the block is none of those.
+     *
+     * <p>Asked before the voxel-shape route and before the multi-material one, because every
+     * block it answers for would otherwise come out as a staircase or a plain box. Reads the
+     * block's own properties and hands {@link CopycatShapes} plain values, so that class never
+     * sees a Copycats+ type.
+     */
+    @Nullable
+    static BlockAppearance special(BlockState state, CompoundTag tag) {
+        Block block = state.getBlock();
+        if (block instanceof CopycatCogWheelBlock cog) {
+            CompoundTag data = tag.getCompound("material_data");
+            // The part names are what the block entity saves its materials under; lowercase,
+            // as confirmed against a live save.
+            return CopycatShapes.cog(state.getValue(RotatedPillarKineticBlock.AXIS), cog.isLargeCog(),
+                    materialOfPart(data, "cogwheel"), materialOfPart(data, "shaft"));
+        }
+        if (block instanceof CopycatShaftBlock) {
+            return CopycatShapes.shaft(state.getValue(RotatedPillarKineticBlock.AXIS),
+                    CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        if (block instanceof CopycatFluidPipeBlock) {
+            return CopycatShapes.fluidPipe(state, CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        if (block instanceof CopycatGlassFluidPipeBlock) {
+            return CopycatShapes.glassPipe(state.getValue(BlockStateProperties.AXIS),
+                    CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        if (block instanceof CopycatSlopeBlock) {
+            return CopycatShapes.slope(state.getValue(CopycatSlopeBlock.FACING),
+                    state.getValue(CopycatSlopeBlock.HALF) == Half.TOP, 0f, 16f,
+                    CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        if (block instanceof CopycatVerticalSlopeBlock) {
+            return CopycatShapes.verticalSlope(state.getValue(CopycatVerticalSlopeBlock.FACING),
+                    CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        if (block instanceof CopycatSlopeLayerBlock) {
+            // Up to four layers the ramp climbs from nothing to 4px a layer. Beyond that it is
+            // a ramp standing on a slab: it starts at the slab's height and climbs to the top,
+            // so eight layers is a full cube.
+            int layers = state.getValue(CopycatSlopeLayerBlock.LAYERS);
+            float start = layers <= 4 ? 0f : 4f * (layers - 4);
+            float end = layers <= 4 ? 4f * layers : 16f;
+            return CopycatShapes.slope(state.getValue(CopycatSlopeLayerBlock.FACING),
+                    state.getValue(CopycatSlopeLayerBlock.HALF) == Half.TOP, start, end,
+                    CopycatAppearances.materialOf(tag.getCompound("Material")));
+        }
+        return null;
+    }
+
+    /** Whether the block turns when its kinetic network does: a cogwheel or a shaft. */
+    static boolean spins(Block block) {
+        return block instanceof CopycatCogWheelBlock || block instanceof CopycatShaftBlock;
+    }
+
+    /** The rate a kinetic copycat spins at, or {@code null} if it is still. */
+    @Nullable
+    static ModelAttachment.Rate spin(BlockState state, float rpm) {
+        return KineticSpin.rateFor(state.getValue(RotatedPillarKineticBlock.AXIS), rpm);
+    }
+
+    /**
      * The pieces of a multi-material copycat, or {@code null} if there is nothing to draw.
      *
      * @param shape the block's whole shape, in 0..16 model space
@@ -114,6 +191,19 @@ final class CopycatsPlus {
      * through their block-state ids. Never serialises anything.
      */
     static long fingerprint(BlockEntity blockEntity) {
+        long hash = materialsFingerprint(blockEntity);
+        if (blockEntity instanceof KineticBlockEntity kinetic) {
+            // The speed the resolver will spin the block at, quantised the same way, so the
+            // version moves exactly when the mesh would: once per whole-RPM change, not on
+            // every fractional wobble. The saved tag is deliberately not consulted for it -
+            // see BlockAppearanceResolver.resolve(BlockState, BlockEntity).
+            hash ^= it.unimi.dsi.fastutil.HashCommon.mix(0x5EEDL + Math.round(kinetic.getSpeed()));
+        }
+        return hash;
+    }
+
+    /** The material part of {@link #fingerprint}. */
+    private static long materialsFingerprint(BlockEntity blockEntity) {
         // The multi-material interface extends the single-material one, so it has to be
         // asked first or every multi-material copycat would be read as having one material.
         if (blockEntity instanceof IMultiStateCopycatBlockEntity multi) {

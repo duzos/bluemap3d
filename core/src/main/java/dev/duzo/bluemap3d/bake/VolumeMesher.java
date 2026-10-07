@@ -98,6 +98,11 @@ public final class VolumeMesher {
         // seeing a grey lump wants the block's name, and there is nowhere else to get
         // it: the fallback is per block and silent by design.
         java.util.Set<String> unresolved = new java.util.TreeSet<>();
+        // Appearances that turn, held back until the partition below. They cannot be emitted
+        // in place: everything the browser animates has to be one contiguous run at the end
+        // of the buffer, and how many may animate depends on the attachments, which are not
+        // counted until the walk is over.
+        List<SpinningBlock> spinning = new ArrayList<>();
 
         volume.forEachBlock((x, y, z, state) -> {
             // A block whose look the state does not describe - a copycat - is drawn from
@@ -107,11 +112,18 @@ public final class VolumeMesher {
             // these blocks ends in the report, so a block is never silently dropped.
             BlockAppearance appearance = volume.appearanceAt(x, y, z);
             if (appearance != null) {
-                List<AppearanceMesher.SourcedQuad> dressed = appearances.quadsFor(appearance);
+                List<AppearanceMesher.SourcedQuad> dressed = appearances.quadsFor(
+                        // Keyed without the spin: the quads do not depend on it, and keyed with
+                        // it every whole-RPM value would cache its own identical copy.
+                        appearance.spin() == null ? appearance : appearance.withSpin(null));
                 if (!dressed.isEmpty()) {
+                    if (appearance.spin() != null) {
+                        spinning.add(new SpinningBlock(x, y, z, dressed, appearance.spin()));
+                        return;
+                    }
                     for (AppearanceMesher.SourcedQuad sourced : dressed) {
                         emitQuad(volume, occluder, x, y, z, sourced.quad(), sourced.source(),
-                                pivot, atlas, mesh, worldPos);
+                                pivot, atlas, mesh, worldPos, true);
                     }
                     return;
                 }
@@ -137,7 +149,7 @@ public final class VolumeMesher {
             }
 
             for (ModelQuad quad : quads) {
-                emitQuad(volume, occluder, x, y, z, quad, source, pivot, atlas, mesh, worldPos);
+                emitQuad(volume, occluder, x, y, z, quad, source, pivot, atlas, mesh, worldPos, true);
             }
         });
 
@@ -168,6 +180,27 @@ public final class VolumeMesher {
             animated = animated.subList(0, cap);
         }
 
+        // Spinning appearances share the one budget with animated attachments, and attachments
+        // keep what they were already given: they are the older behaviour, and a bearing cap
+        // should not vanish because a ship has a lot of copycat cogwheels. The excess
+        // appearances are demoted to still, and emitted here, before the static run closes,
+        // for the same reason the attachment cap is applied at the partition and not while
+        // emitting.
+        int spinBudget = Math.max(0, cap - animated.size());
+        List<SpinningBlock> turning = spinning;
+        if (spinning.size() > spinBudget) {
+            LOGGER.warn("{} spinning blocks and {} animated attachments exceed "
+                    + "maxSpinNodesPerObject ({}); the excess blocks are drawn still",
+                    spinning.size(), animated.size(), cap);
+            for (SpinningBlock block : spinning.subList(spinBudget, spinning.size())) {
+                for (AppearanceMesher.SourcedQuad sourced : block.quads()) {
+                    emitQuad(volume, occluder, block.x(), block.y(), block.z(), sourced.quad(),
+                            sourced.source(), pivot, atlas, mesh, worldPos, true);
+                }
+            }
+            turning = spinning.subList(0, spinBudget);
+        }
+
         for (ModelAttachment attachment : staticAttachments) {
             emitAttachment(attachment, pivot, atlas, mesh, worldPos);
         }
@@ -187,6 +220,35 @@ public final class VolumeMesher {
             nodes.add(nodeFor(attachment, pivot, start, count));
         }
 
+        // Each spinning block is its own node, after the attachments'. Its quads are never
+        // culled: a face against a neighbour is hidden only while it faces that neighbour,
+        // and these turn into view.
+        for (SpinningBlock block : turning) {
+            int start = mesh.indexCount();
+            for (AppearanceMesher.SourcedQuad sourced : block.quads()) {
+                emitQuad(volume, occluder, block.x(), block.y(), block.z(), sourced.quad(),
+                        sourced.source(), pivot, atlas, mesh, worldPos, false);
+            }
+            int count = mesh.indexCount() - start;
+            if (count == 0) {
+                continue;
+            }
+            ModelAttachment.Rate rate = block.rate();
+            nodes.add(new BakedMesh.Node(BakedMesh.KIND_RATE, start, count,
+                    // Built straight in the mesh's pivot-relative block units, from the
+                    // block's own position: the middle of the block it sits in. Not through
+                    // pivotFor(), which takes a model-space point and carries it through an
+                    // attachment transform - an appearance has neither. The subtraction is
+                    // in double, for the same precision reason as the vertices.
+                    new float[]{
+                            (float) (block.x() + 0.5 - pivot.x),
+                            (float) (block.y() + 0.5 - pivot.y),
+                            (float) (block.z() + 0.5 - pivot.z)},
+                    // The axis is already in volume space: no transform applies.
+                    new float[]{rate.axis().x, rate.axis().y, rate.axis().z},
+                    0f, 0f, rate.radiansPerSecond()));
+        }
+
         if (!unresolved.isEmpty()) {
             LOGGER.info("No model found for {} block type(s); approximated: {}. "
                             + "Supply models for these through bluemap3d.assets.sources "
@@ -203,18 +265,25 @@ public final class VolumeMesher {
         return baked;
     }
 
+    /** A block that turns, with its dressed quads, waiting to become a node. */
+    private record SpinningBlock(int x, int y, int z, List<AppearanceMesher.SourcedQuad> quads,
+                                 ModelAttachment.Rate rate) {
+    }
+
     /**
      * Culls, places and packs one quad of the block at {@code x,y,z}.
      *
      * <p>Shared by a block's own model and by an appearance, which differ only in where the
      * quads and their owning source come from. The source is a parameter rather than the
      * mesher's first match because an appearance can mix sources face by face, and the atlas
-     * must ask the one that owns each quad's texture.
+     * must ask the one that owns each quad's texture. {@code culled} is false for a quad that
+     * will turn, which no neighbour can be assumed to keep hidden.
      */
     private static void emitQuad(BlockVolume volume, BlockModelSource occluder, int x, int y, int z,
                                  ModelQuad quad, BlockModelSource source, Vec3 pivot,
-                                 TextureAtlas atlas, MeshBuilder mesh, float[] worldPos) {
-        Direction cull = quad.cullFace();
+                                 TextureAtlas atlas, MeshBuilder mesh, float[] worldPos,
+                                 boolean culled) {
+        Direction cull = culled ? quad.cullFace() : null;
         if (cull != null) {
             BlockState neighbour = volume.stateAt(
                     x + cull.getStepX(), y + cull.getStepY(), z + cull.getStepZ());

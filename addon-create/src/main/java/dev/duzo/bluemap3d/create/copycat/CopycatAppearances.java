@@ -3,6 +3,7 @@ package dev.duzo.bluemap3d.create.copycat;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.content.decoration.copycat.CopycatBlock;
 import com.simibubi.create.content.decoration.copycat.CopycatBlockEntity;
+import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import dev.duzo.bluemap3d.api.BlockAppearance;
 import dev.duzo.bluemap3d.api.BlockAppearanceResolver;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -77,6 +78,15 @@ public final class CopycatAppearances implements BlockAppearanceResolver {
     @Override
     @Nullable
     public BlockAppearance resolve(BlockState state, CompoundTag blockEntityTag) {
+        // Slopes, pipes, cogwheels and shafts first: their voxel shape is a staircase or a
+        // bare box, so the generic route below would draw them wrongly rather than not at all.
+        if (copycatsPlusLoaded()) {
+            BlockAppearance special = CopycatsPlus.special(state, blockEntityTag);
+            if (special != null) {
+                return special;
+            }
+        }
+
         List<float[]> shape = CopycatBoxes.shapeOf(state, MAX_BOXES);
         if (shape == null) {
             return null;
@@ -93,6 +103,23 @@ public final class CopycatAppearances implements BlockAppearanceResolver {
             }
         }
         return pieces == null || pieces.isEmpty() ? null : new BlockAppearance(pieces);
+    }
+
+    @Override
+    @Nullable
+    public BlockAppearance resolve(BlockState state, BlockEntity blockEntity) {
+        BlockAppearance appearance = BlockAppearanceResolver.super.resolve(state, blockEntity);
+        if (appearance == null) {
+            return null;
+        }
+        // Kinetic copycats turn, and how fast is live state on the block entity, not
+        // something to infer from a saved tag. Only reachable from a live level - a ship - so
+        // a contraption's frozen cogwheels, which only ever come through the tag, stay still.
+        if (copycatsPlusLoaded() && CopycatsPlus.spins(state.getBlock())
+                && blockEntity instanceof KineticBlockEntity kinetic) {
+            return appearance.withSpin(CopycatsPlus.spin(state, kinetic.getSpeed()));
+        }
+        return appearance;
     }
 
     @Override

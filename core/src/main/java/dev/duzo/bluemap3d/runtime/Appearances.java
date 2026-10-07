@@ -92,8 +92,10 @@ public final class Appearances {
             return null;
         }
         try {
-            return resolver.resolve(state,
-                    blockEntity.saveWithoutMetadata(blockEntity.getLevel().registryAccess()));
+            // The resolver's own live overload, not a save done here: a resolver whose
+            // appearance depends on live state that is not in the saved tag - a kinetic
+            // block's speed - reads it from the block entity itself.
+            return resolver.resolve(state, blockEntity);
         } catch (RuntimeException | LinkageError e) {
             report(resolver, e);
             return null;

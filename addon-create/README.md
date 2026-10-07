@@ -34,9 +34,10 @@ Also shows:
 - **Pistons and pulleys**, including rope and elevator pulleys
 - **Copycats**, drawn in the material they are skinned in, in Create's own and in
   [Copycats+](https://modrinth.com/mod/copycats) if you have it installed. Also on
-  [Sable](https://modrinth.com/mod/sable) ships, with BlueMap: Aeronautics. Connected
-  textures and the spinning of copycat cogwheels are not shown, and copycat slopes draw as
-  steps
+  [Sable](https://modrinth.com/mod/sable) ships, with BlueMap: Aeronautics, where copycat
+  cogwheels and shafts also turn. Slopes, pipes and cogwheels draw with their real shape.
+  Connected textures are not shown, fluid pipe rims and drains are left off, and copycat
+  cogwheels do not turn on contraptions or trains, whose kinetics are frozen
 - **[Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1) bogeys**, drawn with their own
   wheels and frames instead of Create's, if you have it installed
 

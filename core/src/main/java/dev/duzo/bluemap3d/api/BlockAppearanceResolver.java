@@ -46,6 +46,29 @@ public interface BlockAppearanceResolver {
     BlockAppearance resolve(BlockState state, CompoundTag blockEntityTag);
 
     /**
+     * {@link #resolve(BlockState, CompoundTag)} for a live block entity.
+     *
+     * <p>The default saves the block entity and resolves that, which is right for any
+     * appearance that is entirely in saved data. Override it for one that is not: a spinning
+     * copycat cogwheel's speed is live state a saved tag does not carry reliably, and a
+     * resolver is the one place that knows to read it from the block entity directly. Returns
+     * {@code null}, falling back to the block's own model, if the block entity has no level to
+     * save against.
+     *
+     * <p>This is what {@link BlockVolume#region} calls; a provider that holds its block
+     * entities as tags - a contraption - can only reach the tag form, and so never gets a
+     * {@link BlockAppearance#spin() spin}. That is deliberate: a contraption's kinetics are
+     * frozen, so there is nothing to turn.
+     */
+    @Nullable
+    default BlockAppearance resolve(BlockState state, BlockEntity blockEntity) {
+        if (blockEntity.getLevel() == null) {
+            return null;
+        }
+        return resolve(state, blockEntity.saveWithoutMetadata(blockEntity.getLevel().registryAccess()));
+    }
+
+    /**
      * A stable hash of the parts of a block entity tag that affect {@link #resolve}.
      *
      * <p>Content-based, and only needed to be stable for the life of the process: the same

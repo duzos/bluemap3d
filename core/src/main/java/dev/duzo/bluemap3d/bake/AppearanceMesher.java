@@ -98,7 +98,84 @@ public final class AppearanceMesher {
                 dress(out, from, to, face, piece.material());
             }
         }
+        for (BlockAppearance.Face face : appearance.faces()) {
+            dressFace(out, face);
+        }
         return out.isEmpty() ? List.of() : List.copyOf(out);
+    }
+
+    /**
+     * Appends the quad for one free face.
+     *
+     * <p>Dressed like a box face, except that the texture is read from the face's
+     * {@code uvPositions} rather than from where the geometry actually is, so a bent face
+     * wears the texture of the flat face it was bent from. The face to read is the explicit
+     * {@code uvFace}; nothing here guesses it from the normal, because a 45-degree slope has
+     * none to guess.
+     *
+     * <p>Culled against the neighbour only when all four corners lie on the block boundary on
+     * the {@code uvFace} side. A sloped face does not, so it is never culled by accident.
+     */
+    private void dressFace(List<SourcedQuad> out, BlockAppearance.Face f) {
+        Direction face = f.uvFace();
+        float[] positions = f.positions();
+        Direction cull = onBoundary(positions, face) ? face : null;
+
+        if (packs != null) {
+            int before = out.size();
+            for (ModelQuad faceQuad : packs.quadsFor(f.material())) {
+                if (faceQuad.shadeFace() == face && isFullFace(faceQuad.positions(), face)) {
+                    out.add(new SourcedQuad(new ModelQuad(
+                            cull, face, positions,
+                            uvAt(faceQuad.positions(), faceQuad.uvs(), f.uvPositions()),
+                            faceQuad.texture(), faceQuad.tint()), packs));
+                }
+            }
+            if (out.size() > before) {
+                return;
+            }
+
+            String particle = packs.particleTexture(f.material());
+            if (particle != null && packs.texture(particle) != null) {
+                out.add(new SourcedQuad(new ModelQuad(
+                        cull, face, positions, planarUv(face, f.uvPositions()),
+                        particle, 0xFFFFFF), packs));
+                return;
+            }
+        }
+
+        int colour = MapColorSource.mapColorOf(f.material());
+        out.add(new SourcedQuad(new ModelQuad(
+                cull, face, positions, planarUv(face, f.uvPositions()),
+                MapColorSource.WHITE, colour < 0 ? 0xFFFFFF : colour), mapColors));
+    }
+
+    /**
+     * Texture coordinates for corners lying on a block face, the way {@link ShapeSource}
+     * gives them to a box face: the whole 16x16 sprite across the full face, with v measured
+     * from the top.
+     *
+     * <p>Built by mapping the corners through a synthetic full face rather than a formula of
+     * its own, so it shares the orientation handling of {@link #uvAt} and cannot disagree
+     * with it about which way is up.
+     */
+    private static float[] planarUv(Direction face, float[] corners) {
+        float[] full = ResourcePackSource.faceCorners(new float[]{0, 0, 0}, new float[]{16, 16, 16}, face);
+        float[] uv = ResourcePackSource.uvCorners(
+                ResourcePackSource.autoUv(new float[]{0, 0, 0}, new float[]{16, 16, 16}, face), 0);
+        return uvAt(full, uv, corners);
+    }
+
+    /** Whether all four corners lie on the block's boundary plane for {@code face}. */
+    private static boolean onBoundary(float[] p, Direction face) {
+        float plane = face.getAxisDirection() == Direction.AxisDirection.POSITIVE ? 16f : 0f;
+        int axis = face.getAxis().ordinal();
+        for (int i = 0; i < 4; i++) {
+            if (Math.abs(p[i * 3 + axis] - plane) > EPS) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Appends the quads for one face of one box. */
