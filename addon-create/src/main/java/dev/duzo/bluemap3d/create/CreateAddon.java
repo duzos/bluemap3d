@@ -1,6 +1,7 @@
 package dev.duzo.bluemap3d.create;
 
 import dev.duzo.bluemap3d.api.BlueMap3D;
+import dev.duzo.bluemap3d.create.copycat.CopycatAppearances;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -11,6 +12,11 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 /**
  * Registers this addon's providers and its own config. See {@link ContraptionProvider},
  * {@link CurvedTrackProvider}, {@link BearingProvider} and {@link StationFlagProvider}.
+ *
+ * <p>Also registers the {@link CopycatAppearances} resolver. That lives in the addon rather
+ * than in core because copycats are Create's, and it serves every provider that meshes
+ * blocks - including BlueMap: Sable's ships, which is why a ship's copycats only get their
+ * skins on a server that has this addon too.
  */
 @Mod(CreateAddon.MOD_ID)
 public final class CreateAddon {
@@ -29,6 +35,9 @@ public final class CreateAddon {
         container.registerConfig(ModConfig.Type.SERVER, CreateConfig.SPEC);
         NeoForge.EVENT_BUS.register(chunks);
         NeoForge.EVENT_BUS.register(this);
+        // Before the providers, so a contraption published on the very first tick already
+        // has its copycats' resolver to ask.
+        BlueMap3D.registerAppearanceResolver(new CopycatAppearances());
         BlueMap3D.register(contraptions);
         BlueMap3D.register(new CurvedTrackProvider());
         BlueMap3D.register(bearings);

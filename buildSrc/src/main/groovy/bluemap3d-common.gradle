@@ -97,6 +97,20 @@ repositories {
             includeGroup('dev.ryanhcode.sable-companion')
         }
     }
+    // Copycats+, for addon-create's copycat resolver. It publishes to no maven of its own,
+    // only to Modrinth, whose maven serves any project's files under the synthetic group
+    // maven.modrinth. Declared exclusively for two reasons: nothing else in the build should
+    // ever be looked for there, and - the one that matters - that group must never be
+    // searched on any other repository, where an unrelated artifact could answer for it.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter { includeGroup('maven.modrinth') }
+    }
 }
 
 // Declare capabilities on the outgoing configurations so a consumer can ask for

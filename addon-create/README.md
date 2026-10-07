@@ -32,6 +32,11 @@ Also shows:
 - **Windmills and bearings** turning on their real axis
 - **Gantry carriages** sliding along the shaft
 - **Pistons and pulleys**, including rope and elevator pulleys
+- **Copycats**, drawn in the material they are skinned in, in Create's own and in
+  [Copycats+](https://modrinth.com/mod/copycats) if you have it installed. Also on
+  [Sable](https://modrinth.com/mod/sable) ships, with BlueMap: Aeronautics. Connected
+  textures and the spinning of copycat cogwheels are not shown, and copycat slopes draw as
+  steps
 - **[Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1) bogeys**, drawn with their own
   wheels and frames instead of Create's, if you have it installed
 
@@ -54,6 +59,7 @@ Most servers will not need to touch it.
 
 - [Create](https://modrinth.com/mod/create)
 - [Steam 'n' Rails](https://modrinth.com/mod/create-steam-n-rails-1.21.1)
+- [Copycats+](https://modrinth.com/mod/copycats)
 - [BlueMap](https://modrinth.com/mod/bluemap)
 - [BlueMap3D](https://modrinth.com/mod/bluemap3d)
 - [Bug reports](https://github.com/duzos/bluemap3d/issues)

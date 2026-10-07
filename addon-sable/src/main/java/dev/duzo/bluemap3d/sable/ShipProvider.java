@@ -313,7 +313,11 @@ public final class ShipProvider implements SceneObjectProvider {
      *       ship should not be re-meshed because something moored to it moved;</li>
      *   <li><b>each chunk section's serialised size</b>, which catches a block being
      *       swapped for a different one that happens to weigh the same, because the new
-     *       block has to enter that section's palette.</li>
+     *       block has to enter that section's palette;</li>
+     *   <li><b>each chunk's block entity appearances</b>, for blocks drawn from their block
+     *       entity rather than their state - a copycat's material is invisible to every
+     *       input above. Core owns the registry of what is handled and how it is hashed, so
+     *       this stays correct for a resolver this addon has never heard of.</li>
      * </ul>
      *
      * <p>Sections are folded in commutatively. The plot's loaded-chunk list is in load
@@ -354,6 +358,10 @@ public final class ShipProvider implements SceneObjectProvider {
                 perChunk = mix(perChunk, section == null || section.hasOnlyAir()
                         ? 0 : section.getSerializedSize());
             }
+            // Block entity appearances - a copycat's skin - change what the hull looks like
+            // without touching the palette, the mass or the bounds, so none of the above can
+            // see them. Zero, and free, unless some addon registered a resolver.
+            perChunk = mix(perChunk, BlueMap3D.appearanceFingerprint(chunk));
             sections ^= perChunk;
         }
         return mix(hash, sections);

@@ -1,5 +1,10 @@
 package dev.duzo.bluemap3d.api;
 
+import dev.duzo.bluemap3d.runtime.Appearances;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +87,77 @@ public final class BlueMap3D {
     /** Whether anything is registered. Core short-circuits its whole tick when false. */
     public static boolean hasProviders() {
         return !PROVIDERS.isEmpty();
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Block appearances
+    // ---------------------------------------------------------------------------------
+
+    /**
+     * Registers a resolver for blocks whose look lives in their block entity.
+     *
+     * <p>Thread-safe, and may be called at any point in the mod lifecycle. Nothing is
+     * re-meshed when a resolver arrives late, but every mesh baked afterwards sees it.
+     *
+     * @param resolver the resolver to add; the first registered one that handles a state wins
+     * @see BlockAppearanceResolver
+     */
+    public static void registerAppearanceResolver(BlockAppearanceResolver resolver) {
+        Appearances.register(Objects.requireNonNull(resolver, "resolver"));
+    }
+
+    /**
+     * Unregisters a resolver previously passed to {@link #registerAppearanceResolver}.
+     *
+     * @return whether it was registered
+     */
+    public static boolean unregisterAppearanceResolver(BlockAppearanceResolver resolver) {
+        return Appearances.unregister(resolver);
+    }
+
+    /** Whether a registered resolver claims this state. */
+    public static boolean hasAppearance(BlockState state) {
+        return Appearances.handled(state);
+    }
+
+    /**
+     * The appearance of a block from its saved block entity data, for a provider that holds
+     * block entities as tags and builds its own {@link BlockVolume#of(java.util.Map,
+     * net.minecraft.world.phys.Vec3, java.util.Collection, java.util.Map) volume}.
+     *
+     * @return the appearance, or {@code null} if no resolver handles the state or the
+     *         resolver declines
+     */
+    public static BlockAppearance resolveAppearance(BlockState state, CompoundTag blockEntityTag) {
+        return Appearances.resolve(state, blockEntityTag);
+    }
+
+    /**
+     * The fingerprint of one block's saved data, for a provider that holds block entities as
+     * tags. {@code 0} when no resolver handles the state.
+     *
+     * @see BlockAppearanceResolver#fingerprint(CompoundTag)
+     */
+    public static long appearanceFingerprint(BlockState state, CompoundTag blockEntityTag) {
+        return Appearances.fingerprint(state, blockEntityTag);
+    }
+
+    /**
+     * The fingerprint of one live block entity. {@code 0} when no resolver handles it.
+     *
+     * @see BlockAppearanceResolver#fingerprint(BlockEntity)
+     */
+    public static long appearanceFingerprint(BlockEntity blockEntity) {
+        return Appearances.fingerprint(blockEntity);
+    }
+
+    /**
+     * One number for every handled appearance in a chunk, for a provider that reads a level
+     * to fold into its {@link SceneObject#geometryVersion()}. Order-independent, and
+     * {@code 0} - at no cost - when no resolver is registered.
+     */
+    public static long appearanceFingerprint(LevelChunk chunk) {
+        return Appearances.fingerprint(chunk);
     }
 
     // ---------------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package dev.duzo.bluemap3d.bake;
 
 import dev.duzo.bluemap3d.Config;
+import dev.duzo.bluemap3d.api.BlockAppearance;
 import dev.duzo.bluemap3d.api.BlockVolume;
 import dev.duzo.bluemap3d.api.ModelAttachment;
 import net.minecraft.core.Direction;
@@ -35,6 +36,7 @@ public final class VolumeMesher {
 
     private final List<BlockModelSource> sources;
     private final int maxBlocks;
+    private final AppearanceMesher appearances;
 
     /**
      * @param sources   model sources in priority order; must not be empty
@@ -47,6 +49,7 @@ public final class VolumeMesher {
         }
         this.sources = List.copyOf(sources);
         this.maxBlocks = maxBlocks;
+        this.appearances = new AppearanceMesher(this.sources);
     }
 
     /**
@@ -97,6 +100,23 @@ public final class VolumeMesher {
         java.util.Set<String> unresolved = new java.util.TreeSet<>();
 
         volume.forEachBlock((x, y, z, state) -> {
+            // A block whose look the state does not describe - a copycat - is drawn from
+            // its appearance instead of its model. It counts as faithful: the materials
+            // are the real ones, so there is nothing for the unresolved report to say. An
+            // appearance that comes out empty falls through to the normal path, which for
+            // these blocks ends in the report, so a block is never silently dropped.
+            BlockAppearance appearance = volume.appearanceAt(x, y, z);
+            if (appearance != null) {
+                List<AppearanceMesher.SourcedQuad> dressed = appearances.quadsFor(appearance);
+                if (!dressed.isEmpty()) {
+                    for (AppearanceMesher.SourcedQuad sourced : dressed) {
+                        emitQuad(volume, occluder, x, y, z, sourced.quad(), sourced.source(),
+                                pivot, atlas, mesh, worldPos);
+                    }
+                    return;
+                }
+            }
+
             BlockModelSource source = null;
             List<ModelQuad> quads = List.of();
             for (BlockModelSource candidate : sources) {
@@ -117,41 +137,7 @@ public final class VolumeMesher {
             }
 
             for (ModelQuad quad : quads) {
-                Direction cull = quad.cullFace();
-                if (cull != null) {
-                    BlockState neighbour = volume.stateAt(
-                            x + cull.getStepX(), y + cull.getStepY(), z + cull.getStepZ());
-                    if (occluder.occludes(neighbour)) {
-                        continue;
-                    }
-                }
-
-                float[] model = quad.positions();
-                for (int i = 0; i < 4; i++) {
-                    // Model space is 0..16 per block; the mesh is in block units,
-                    // relative to the pivot so the browser only has to write a
-                    // position and a quaternion.
-                    //
-                    // Subtract the pivot first, and in double. A volume's coordinates are
-                    // the source's, and a Sable ship's are its plot's - about 2.05e7,
-                    // which is past where a float can tell one block from the next, let
-                    // alone a sixteenth of one. Written the obvious way round, `x + m/16f`
-                    // is evaluated as a float and the model offset is gone before the
-                    // pivot ever gets subtracted. It looks fine on a turtle at the origin
-                    // and shreds a ship.
-                    worldPos[i * 3] = (float) (x - pivot.x + model[i * 3] / 16.0);
-                    worldPos[i * 3 + 1] = (float) (y - pivot.y + model[i * 3 + 1] / 16.0);
-                    worldPos[i * 3 + 2] = (float) (z - pivot.z + model[i * 3 + 2] / 16.0);
-                }
-
-                float shade = ModelQuad.shadeOf(quad.shadeFace());
-                int tint = quad.tint();
-                int r = Math.round(((tint >> 16) & 0xFF) * shade);
-                int g = Math.round(((tint >> 8) & 0xFF) * shade);
-                int b = Math.round((tint & 0xFF) * shade);
-
-                int slot = atlas.add(quad.texture(), source.texture(quad.texture()));
-                mesh.quad(worldPos, quad.uvs(), slot, r, g, b);
+                emitQuad(volume, occluder, x, y, z, quad, source, pivot, atlas, mesh, worldPos);
             }
         });
 
@@ -215,6 +201,54 @@ public final class VolumeMesher {
         LOGGER.debug("Meshed {} blocks -> {} vertices, {} triangles, {} sprites, {} nodes",
                 blocks, baked.vertexCount(), baked.triangleCount(), atlas.size(), nodes.size());
         return baked;
+    }
+
+    /**
+     * Culls, places and packs one quad of the block at {@code x,y,z}.
+     *
+     * <p>Shared by a block's own model and by an appearance, which differ only in where the
+     * quads and their owning source come from. The source is a parameter rather than the
+     * mesher's first match because an appearance can mix sources face by face, and the atlas
+     * must ask the one that owns each quad's texture.
+     */
+    private static void emitQuad(BlockVolume volume, BlockModelSource occluder, int x, int y, int z,
+                                 ModelQuad quad, BlockModelSource source, Vec3 pivot,
+                                 TextureAtlas atlas, MeshBuilder mesh, float[] worldPos) {
+        Direction cull = quad.cullFace();
+        if (cull != null) {
+            BlockState neighbour = volume.stateAt(
+                    x + cull.getStepX(), y + cull.getStepY(), z + cull.getStepZ());
+            if (occluder.occludes(neighbour)) {
+                return;
+            }
+        }
+
+        float[] model = quad.positions();
+        for (int i = 0; i < 4; i++) {
+            // Model space is 0..16 per block; the mesh is in block units,
+            // relative to the pivot so the browser only has to write a
+            // position and a quaternion.
+            //
+            // Subtract the pivot first, and in double. A volume's coordinates are
+            // the source's, and a Sable ship's are its plot's - about 2.05e7,
+            // which is past where a float can tell one block from the next, let
+            // alone a sixteenth of one. Written the obvious way round, `x + m/16f`
+            // is evaluated as a float and the model offset is gone before the
+            // pivot ever gets subtracted. It looks fine on a turtle at the origin
+            // and shreds a ship.
+            worldPos[i * 3] = (float) (x - pivot.x + model[i * 3] / 16.0);
+            worldPos[i * 3 + 1] = (float) (y - pivot.y + model[i * 3 + 1] / 16.0);
+            worldPos[i * 3 + 2] = (float) (z - pivot.z + model[i * 3 + 2] / 16.0);
+        }
+
+        float shade = ModelQuad.shadeOf(quad.shadeFace());
+        int tint = quad.tint();
+        int r = Math.round(((tint >> 16) & 0xFF) * shade);
+        int g = Math.round(((tint >> 8) & 0xFF) * shade);
+        int b = Math.round((tint & 0xFF) * shade);
+
+        int slot = atlas.add(quad.texture(), source.texture(quad.texture()));
+        mesh.quad(worldPos, quad.uvs(), slot, r, g, b);
     }
 
     /**

@@ -56,6 +56,7 @@ again. That is the right next step for this directory and it has not been done y
 | --- | --- |
 | `config/bluemap3d-server.toml` | A byte-for-byte copy of what NeoForge writes. Hand-write it and NeoForge rewrites the file on first load to put the comments back, and the reload that follows can land in the window where BlueMap enables and BlueMap3D reads its config, failing the whole mod with "Cannot get config value before config is loaded" |
 | `world/datapacks/bluemap3d_test/` | Builds the bearing rig and triggers assembly once |
+| `world/datapacks/bluemap3d_test/data/bluemap3d_test/function/copycats.mcfunction` | The copycat rig, run by hand with `function bluemap3d_test:copycats`: a glued wall of Create and Copycats+ copycats on a bearing at x=-36, z=-20, each in a different material. Needs `libs/copycats-3.0.9+mc.1.21.1-neoforge.jar` for the Copycats+ half |
 
 ## Driving it by hand
 

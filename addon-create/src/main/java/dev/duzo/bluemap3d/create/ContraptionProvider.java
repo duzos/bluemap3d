@@ -8,7 +8,9 @@ import com.simibubi.create.content.trains.entity.CarriageContraptionEntity;
 import com.simibubi.create.content.trains.entity.Train;
 import com.simibubi.create.content.trains.graph.DimensionPalette;
 import dev.duzo.bluemap3d.Config;
+import dev.duzo.bluemap3d.api.BlockAppearance;
 import dev.duzo.bluemap3d.api.BlockVolume;
+import dev.duzo.bluemap3d.api.BlueMap3D;
 import dev.duzo.bluemap3d.api.ModelAttachment;
 import dev.duzo.bluemap3d.api.SceneObject;
 import dev.duzo.bluemap3d.api.SceneObjectProvider;
@@ -44,6 +46,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Reports every moving Create contraption as a {@link SceneObject}.
@@ -170,8 +173,12 @@ public final class ContraptionProvider implements SceneObjectProvider {
      * axle, say - leaves every one of those inputs identical, so the URL does not move and
      * viewers keep the mesh they already have. That cost a whole debugging session: the
      * fix was correct on disk and the page kept showing the old geometry.
+     *
+     * <p>3: copycats are drawn in their materials. The block states are unchanged, so
+     * without a bump a copycat already baked as a hole or a grey cube would keep that mesh
+     * until its contraption next changed.
      */
-    private static final long GEOMETRY_REVISION = 2L;
+    private static final long GEOMETRY_REVISION = 3L;
 
     // Create's own two bogey BLOCKS. These are block ids, not block entity type ids, and
     // the difference has already cost one debugging session: Create registers a single
@@ -591,7 +598,7 @@ public final class ContraptionProvider implements SceneObjectProvider {
     }
 
     /** Builds the {@link SceneObject} both contraption paths return, differing only in id. */
-    private static SceneObject sceneObjectOf(String objectId, BlockVolume volume, long version,
+    private static SceneObject sceneObjectOf(String objectId, Supplier<BlockVolume> volume, long version,
                                               Vec3 position, Quaternionf rotation, ResourceKey<Level> dimension) {
         return new SceneObject() {
             @Override
@@ -601,7 +608,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
 
             @Override
             public BlockVolume geometry() {
-                return volume;
+                // Core only calls this when geometryVersion() has moved, so this is where
+                // the volume - and any copycat appearance in it - is actually built.
+                return volume.get();
             }
 
             @Override
@@ -667,6 +676,9 @@ public final class ContraptionProvider implements SceneObjectProvider {
         Map<BlockPos, BlockState> blocks = new HashMap<>(source.size());
         List<ModelAttachment> attachments = new ArrayList<>();
         Map<BlockPos, CompoundTag> updateTags = updateTagsOf(contraption);
+        // The blocks whose look lives in their block entity - copycats - with the tag to
+        // read it from. Collected here and resolved later, in the volume supplier; see below.
+        List<AppearanceInput> appearanceInputs = new ArrayList<>();
         long version = FNV_OFFSET;
         for (Map.Entry<BlockPos, StructureTemplate.StructureBlockInfo> entry : source.entrySet()) {
             BlockPos pos = entry.getKey();
@@ -686,12 +698,75 @@ public final class ContraptionProvider implements SceneObjectProvider {
             String style = bogeyStyleOf(updateTags.get(pos), entry.getValue());
             version ^= mix(mix(FNV_OFFSET, pos.asLong()), style.hashCode());
             addBogeyAttachments(pos, entry.getValue(), style, attachments);
+
+            if (BlueMap3D.hasAppearance(state)) {
+                // A copycat's skin is in its block entity, not its state, so it has to be
+                // in the version too: re-skinning one leaves every input above untouched,
+                // and without this the carriage would keep the mesh it was first baked
+                // with. Same position seeding as above, for the same reason.
+                //
+                // The update tag is asked before the block info's own nbt, as for bogeys
+                // and for the same reason - see UPDATE_TAGS_FIELD - and the fallback covers
+                // a contraption whose reflection failed or whose block has no update tag.
+                CompoundTag tag = updateTags.get(pos);
+                if (tag == null || tag.isEmpty()) {
+                    tag = entry.getValue().nbt();
+                }
+                if (tag == null) {
+                    tag = new CompoundTag();
+                }
+                version ^= mix(mix(FNV_OFFSET, pos.asLong()), BlueMap3D.appearanceFingerprint(state, tag));
+                appearanceInputs.add(new AppearanceInput(pos, state, tag));
+            }
         }
         version = mix(version, source.size());
         version = mix(version, GEOMETRY_REVISION);
 
-        BlockVolume volume = BlockVolume.of(blocks, PIVOT, attachments);
-        return new CarriageGeometry(volume, version);
+        // Not built here. This method runs every publish interval for every contraption,
+        // but a volume is only wanted when the version above has changed, which is when
+        // core calls SceneObject.geometry(). Resolving a copycat reads its shape and walks
+        // its material, so the work is deferred to that moment and memoized: a carriage
+        // whose bake comes out empty is asked again every interval, and must not re-resolve
+        // every time.
+        //
+        // The supplier closes over the block map, the attachments and the handled blocks'
+        // tags - never over the Contraption. A cold carriage's cache entry outlives the
+        // Contraption it was read from, and holding it here would keep that and its
+        // updateTags map alive for as long as the train exists. The tags are held by
+        // reference rather than copied: Create replaces a StructureBlockInfo rather than
+        // mutating its tag, so a captured tag never changes underneath us.
+        return new CarriageGeometry(volumeSupplier(blocks, attachments, appearanceInputs), version);
+    }
+
+    /**
+     * A memoized supplier of a contraption's volume, resolving its blocks' appearances on
+     * first use.
+     *
+     * <p>Called on the server thread, from {@code SceneObject.geometry()}, like everything
+     * else core reads off a scene object. Synchronized only so two callers cannot both
+     * resolve; nothing contends for it.
+     */
+    private static Supplier<BlockVolume> volumeSupplier(Map<BlockPos, BlockState> blocks,
+                                                         List<ModelAttachment> attachments,
+                                                         List<AppearanceInput> inputs) {
+        return new Supplier<>() {
+            private BlockVolume volume;
+
+            @Override
+            public synchronized BlockVolume get() {
+                if (volume == null) {
+                    Map<BlockPos, BlockAppearance> appearances = new HashMap<>();
+                    for (AppearanceInput input : inputs) {
+                        BlockAppearance appearance = BlueMap3D.resolveAppearance(input.state(), input.tag());
+                        if (appearance != null) {
+                            appearances.put(input.pos(), appearance);
+                        }
+                    }
+                    volume = BlockVolume.of(blocks, PIVOT, attachments, appearances);
+                }
+                return volume;
+            }
+        };
     }
 
     /**
@@ -985,12 +1060,17 @@ public final class ContraptionProvider implements SceneObjectProvider {
     /** One carriage's baked geometry, in the {@link #carriageCaches} map. Mutable and reused in place. */
     private static final class CarriageCache {
         boolean seeded;
-        BlockVolume volume;
+        // A supplier, not a volume: see buildGeometry. Null still means never seeded.
+        Supplier<BlockVolume> volume;
         long version;
         float initialYawDegrees;
     }
 
-    /** A built volume plus the version it was built at. */
-    private record CarriageGeometry(BlockVolume volume, long version) {
+    /** A volume, to be built on demand, plus the version it will be built at. */
+    private record CarriageGeometry(Supplier<BlockVolume> volume, long version) {
+    }
+
+    /** A block whose appearance has to be resolved, and the block entity tag to resolve it from. */
+    private record AppearanceInput(BlockPos pos, BlockState state, CompoundTag tag) {
     }
 }

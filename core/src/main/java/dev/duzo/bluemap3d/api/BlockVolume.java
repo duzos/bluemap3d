@@ -3,9 +3,11 @@ package dev.duzo.bluemap3d.api;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -116,6 +118,25 @@ public interface BlockVolume {
         return java.util.List.of();
     }
 
+    /**
+     * What the block at a local position looks like when its block state does not say, or
+     * {@code null} for the usual case where the state is the whole answer.
+     *
+     * <p>Create's copycats are the reason this exists: the state is a bare
+     * {@code copycat_panel}, and the material it is skinned in lives in its block entity.
+     * See {@link BlockAppearance}. When this returns non-null the mesher draws it in place
+     * of the block's own model.
+     *
+     * <p>An appearance is geometry, exactly as a block state is. A provider that caches a
+     * mesh against {@link SceneObject#geometryVersion()} must fold the appearances of its
+     * blocks into that version - {@link BlueMap3D#appearanceFingerprint} exists for it -
+     * or re-skinning a block will never reach the map.
+     */
+    @Nullable
+    default BlockAppearance appearanceAt(int x, int y, int z) {
+        return null;
+    }
+
     /** Receives blocks from {@link #forEachBlock}. */
     @FunctionalInterface
     interface BlockConsumer {
@@ -173,7 +194,10 @@ public interface BlockVolume {
      *
      * <p>The ship case: pass the sub-level and the ship's bounds. Blocks are copied
      * eagerly, so the returned volume is safe to mesh off the server thread and is
-     * unaffected by later changes to the source.
+     * unaffected by later changes to the source. That includes block entity appearances:
+     * for every block a registered {@link BlockAppearanceResolver} handles, the block
+     * entity is read and resolved here and now, on the calling thread, so the volume never
+     * holds a live block entity. This is why the call belongs on the server thread.
      *
      * @param source the level or other block source to read
      * @param min    inclusive lower corner, in {@code source}'s coordinates
@@ -183,6 +207,10 @@ public interface BlockVolume {
     static BlockVolume region(BlockGetter source, BlockPos min, BlockPos max, Vec3 pivot) {
         Objects.requireNonNull(source, "source");
         Map<BlockPos, BlockState> blocks = new HashMap<>();
+        Map<BlockPos, BlockAppearance> appearances = new HashMap<>();
+        // Checked once per call rather than per block: with no resolver registered - every
+        // server without Create - the walk below must cost exactly what it did before.
+        boolean resolving = dev.duzo.bluemap3d.runtime.Appearances.any();
         BlockPos lo = new BlockPos(
                 Math.min(min.getX(), max.getX()),
                 Math.min(min.getY(), max.getY()),
@@ -198,12 +226,26 @@ public interface BlockVolume {
                 for (int z = lo.getZ(); z <= hi.getZ(); z++) {
                     BlockState state = source.getBlockState(cursor.set(x, y, z));
                     if (!state.isAir()) {
-                        blocks.put(new BlockPos(x, y, z), state);
+                        BlockPos pos = new BlockPos(x, y, z);
+                        blocks.put(pos, state);
+                        if (resolving && dev.duzo.bluemap3d.runtime.Appearances.handled(state)) {
+                            BlockEntity be = source.getBlockEntity(pos);
+                            // Saving and resolving are guarded together inside Appearances,
+                            // so a block entity that throws costs its own block's appearance
+                            // and not the whole volume's bake.
+                            if (be != null) {
+                                BlockAppearance appearance =
+                                        dev.duzo.bluemap3d.runtime.Appearances.resolve(state, be);
+                                if (appearance != null) {
+                                    appearances.put(pos, appearance);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        return of(blocks, pivot);
+        return of(blocks, pivot, java.util.List.of(), appearances);
     }
 
     /**
@@ -229,7 +271,25 @@ public interface BlockVolume {
      */
     static BlockVolume of(Map<BlockPos, BlockState> blocks, Vec3 pivot,
                           Collection<ModelAttachment> attachments) {
+        return of(blocks, pivot, attachments, Map.of());
+    }
+
+    /**
+     * A sparse volume with attachments and per-block appearances.
+     *
+     * <p>For blocks whose look the state does not describe - see {@link BlockAppearance}.
+     * A provider that holds block entities as saved tags, a contraption, resolves them
+     * itself and passes the result here; one that reads a level gets the same thing from
+     * {@link #region}. The map is copied, and entries with no matching block are dropped,
+     * so a stale appearance cannot draw a block that is not there.
+     *
+     * @param appearances local position to appearance; {@code null} values are dropped
+     */
+    static BlockVolume of(Map<BlockPos, BlockState> blocks, Vec3 pivot,
+                          Collection<ModelAttachment> attachments,
+                          Map<BlockPos, BlockAppearance> appearances) {
         Objects.requireNonNull(blocks, "blocks");
+        Objects.requireNonNull(appearances, "appearances");
         Objects.requireNonNull(pivot, "pivot");
         Collection<ModelAttachment> extras = java.util.List.copyOf(attachments);
 
@@ -243,6 +303,13 @@ public interface BlockVolume {
         if (copy.isEmpty()) {
             return EMPTY;
         }
+
+        Map<BlockPos, BlockAppearance> looks = new HashMap<>(appearances.size());
+        appearances.forEach((pos, appearance) -> {
+            if (pos != null && appearance != null && copy.containsKey(pos)) {
+                looks.put(pos.immutable(), appearance);
+            }
+        });
 
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
@@ -277,6 +344,9 @@ public interface BlockVolume {
                 // unsafe to hand to a baking thread pool. Bakes are rare, so the
                 // garbage is cheaper than the concurrency bug.
                 return copy.getOrDefault(new BlockPos(x, y, z), air);
+            }
+            @Override public BlockAppearance appearanceAt(int x, int y, int z) {
+                return looks.isEmpty() ? null : looks.get(new BlockPos(x, y, z));
             }
             @Override public void forEachBlock(BlockConsumer consumer) {
                 copy.forEach((pos, state) ->

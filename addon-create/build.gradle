@@ -35,6 +35,15 @@ dependencies {
     // jar-in-jar at runtime, so it must never go into devMods or get bundled.
     compileOnly "net.createmod.ponder:ponder-neoforge:1.0.82+mc1.21.1"
 
+    // Copycats+, for CopycatsPlus, the one class that touches its types. Compile-only and
+    // non-transitive: the addon has no toml dependency on it, because most servers running
+    // Create do not have it, so every use is behind a ModList check and the class is never
+    // loaded without it. Its own dependencies (Create, Registrate, Flywheel) are either
+    // already on the classpath or irrelevant to the two interfaces read here.
+    compileOnly("maven.modrinth:copycats:3.0.9+mc.1.21.1-neoforge") {
+        transitive = false
+    }
+
     // The real mod, for the dev server - the main jar rather than slim, because this one
     // has to actually run and the loader needs the jar-in-jars unpacked. Create declares
     // no external mod dependencies on 1.21.1; everything it needs is inside.
@@ -52,6 +61,19 @@ dependencies {
         logger.lifecycle("addon-create: installing ${railwaysJar.name} on the dev server")
     } else {
         logger.lifecycle("addon-create: ${railwaysJar.name} not in libs/, dev server will not have Steam 'n' Rails")
+    }
+
+    // Copycats+ on the dev server, by the same drop-in pattern as Steam 'n' Rails above.
+    // The compileOnly dependency earlier resolves the very same file from Modrinth, but a
+    // compileOnly dependency never reaches devMods, so the dev server would otherwise have
+    // no copycats to render. Builds fine with libs/ empty; it just means nothing to test
+    // the copycat resolver against.
+    def copycatsJar = file("libs/copycats-3.0.9+mc.1.21.1-neoforge.jar")
+    if (copycatsJar.exists()) {
+        devMods files(copycatsJar)
+        logger.lifecycle("addon-create: installing ${copycatsJar.name} on the dev server")
+    } else {
+        logger.lifecycle("addon-create: ${copycatsJar.name} not in libs/, dev server will not have Copycats+")
     }
 }
 
